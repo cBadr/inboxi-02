@@ -1,7 +1,9 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@inboxi/db';
+import { extractOtp } from '@inboxi/shared';
 import { requireAdmin } from '@/lib/session';
+import { AdminComposer } from '@/components/admin/AdminComposer';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +17,7 @@ export default async function AdminMessageDetailPage({
 
   const message = await prisma.message.findUnique({
     where: { id: messageId },
-    include: { attachments: true },
+    include: { attachments: true, domain: { select: { name: true } } },
   });
   if (!message || message.domainId !== domainId) notFound();
 
@@ -23,59 +25,153 @@ export default async function AdminMessageDetailPage({
     await prisma.message.update({ where: { id: message.id }, data: { isRead: true } });
   }
 
-  return (
-    <div>
-      <Link href={`/admin/inboxes/${domainId}`} className="text-sm text-gray-500 hover:text-brand">
-        ← Inbox
-      </Link>
+  const otp = extractOtp({
+    subject: message.subject ?? undefined,
+    text: message.textBody ?? undefined,
+  });
+  const domainName = message.domain.name;
+  const sizeKb = message.sizeBytes ? Math.max(1, Math.round(message.sizeBytes / 1024)) : null;
 
-      <div className="mt-3 rounded-lg border bg-white">
-        <div className="flex items-start justify-between border-b p-4">
-          <div>
-            <h1 className="text-lg font-semibold">{message.subject || '(no subject)'}</h1>
-            <div className="mt-1 text-sm text-gray-500">
-              From <span className="font-medium">{message.fromAddress}</span> ·{' '}
-              {new Date(message.receivedAt).toLocaleString()}
-            </div>
-            <div className="text-xs text-gray-400">To {message.toAddress}</div>
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <Link
+          href={`/admin/inboxes/${domainId}`}
+          className="text-sm text-gray-500 transition hover:text-brand"
+        >
+          ← {domainName}
+        </Link>
+        <div className="flex items-center gap-2">
+          <AdminComposer
+            domains={[domainName]}
+            defaultFrom={message.toAddress}
+            defaultTo={message.fromAddress}
+            defaultSubject={`Re: ${message.subject ?? ''}`}
+            triggerLabel="Reply"
+            triggerClassName="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3.5 py-1.5 text-sm font-medium text-white transition hover:bg-brand-dark"
+          />
+          <AdminComposer
+            domains={[domainName]}
+            defaultFrom={message.toAddress}
+            defaultSubject={`Fwd: ${message.subject ?? ''}`}
+            triggerLabel="Forward"
+            triggerClassName="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3.5 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+          />
+        </div>
+      </div>
+
+      <article className="overflow-hidden rounded-xl border bg-white">
+        {/* subject bar */}
+        <div className="border-b px-6 py-5">
+          <div className="flex items-start justify-between gap-3">
+            <h1 className="text-xl font-semibold text-gray-900">
+              {message.subject || '(no subject)'}
+            </h1>
+            {otp && (
+              <span className="shrink-0 rounded-lg bg-green-50 px-3 py-1 font-mono text-sm font-semibold text-green-700 ring-1 ring-green-200">
+                Code: {otp.code}
+              </span>
+            )}
           </div>
-          <Link
-            href={`/dashboard/compose?from=${encodeURIComponent(message.toAddress)}&to=${encodeURIComponent(message.fromAddress)}&subject=${encodeURIComponent('Re: ' + (message.subject ?? ''))}`}
-            className="shrink-0 rounded bg-brand px-3 py-1.5 text-sm text-white hover:bg-brand-dark"
-          >
-            Reply
-          </Link>
+
+          {/* sender row */}
+          <div className="mt-4 flex items-center gap-3">
+            <span
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
+              style={{ backgroundColor: avatarColor(message.fromAddress) }}
+            >
+              {initials(message.fromAddress)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-gray-900">{senderName(message.fromAddress)}</span>
+                <span className="truncate font-mono text-xs text-gray-400">
+                  &lt;{message.fromAddress}&gt;
+                </span>
+              </div>
+              <div className="text-xs text-gray-500">
+                to <span className="font-mono">{message.toAddress}</span>
+              </div>
+            </div>
+            <div className="shrink-0 text-right text-xs text-gray-400">
+              <div>{new Date(message.receivedAt).toLocaleString()}</div>
+              <div className="mt-0.5 flex items-center justify-end gap-2">
+                {sizeKb && <span>{sizeKb} KB</span>}
+                {message.isSpam && (
+                  <span className="rounded bg-red-50 px-1.5 py-0.5 text-red-600">spam</span>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="p-4">
+        {/* body */}
+        <div className="px-6 py-5">
           {message.htmlBody ? (
             <iframe
               title="message"
               sandbox=""
-              className="h-[60vh] w-full rounded border"
+              className="h-[60vh] w-full rounded-lg border bg-white"
               srcDoc={message.htmlBody}
             />
           ) : (
-            <pre className="whitespace-pre-wrap break-words text-sm">
+            <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-gray-800">
               {message.textBody || '(no content)'}
             </pre>
           )}
         </div>
 
+        {/* attachments */}
         {message.attachments.length > 0 && (
-          <div className="border-t p-4">
-            <div className="mb-2 text-xs font-semibold uppercase text-gray-400">Attachments</div>
-            <ul className="space-y-1 text-sm">
+          <div className="border-t bg-gray-50/50 px-6 py-4">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+              {message.attachments.length} attachment{message.attachments.length === 1 ? '' : 's'}
+            </div>
+            <ul className="flex flex-wrap gap-2">
               {message.attachments.map((a) => (
-                <li key={a.id}>
-                  📎 {a.filename}{' '}
-                  <span className="text-xs text-gray-400">({a.sizeBytes} bytes)</span>
+                <li
+                  key={a.id}
+                  className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm"
+                >
+                  <span className="flex h-8 w-8 items-center justify-center rounded bg-gray-100 text-gray-400">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <path d="M14 2v6h6" />
+                    </svg>
+                  </span>
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-gray-700">{a.filename}</div>
+                    <div className="text-xs text-gray-400">{formatBytes(a.sizeBytes)}</div>
+                  </div>
                 </li>
               ))}
             </ul>
           </div>
         )}
-      </div>
+      </article>
     </div>
   );
+}
+
+/* — display helpers — */
+function senderName(addr: string): string {
+  const local = addr.split('@')[0] ?? addr;
+  return local.replace(/[._-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+function initials(addr: string): string {
+  const name = senderName(addr).trim();
+  const parts = name.split(/\s+/);
+  if (parts.length >= 2) return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
+  return (addr[0] ?? '?').toUpperCase();
+}
+const AVATAR_COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
+function avatarColor(addr: string): string {
+  let h = 0;
+  for (let i = 0; i < addr.length; i++) h = (h * 31 + addr.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length]!;
+}
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
