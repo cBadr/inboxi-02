@@ -620,6 +620,7 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
             value={bodyHtml}
             onChange={setBodyHtml}
             handleRef={(h) => (richHandle.current = h)}
+            onFocus={() => (activeField.current = 'body')}
             placeholder="Write your message — use the toolbar and insert {{variables}}…"
           />
         ) : (

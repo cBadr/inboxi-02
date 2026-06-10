@@ -24,11 +24,13 @@ export function RichEditor({
   onChange,
   handleRef,
   placeholder,
+  onFocus,
 }: {
   value: string;
   onChange: (html: string) => void;
   handleRef?: (h: RichEditorHandle | null) => void;
   placeholder?: string;
+  onFocus?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -107,6 +109,7 @@ export function RichEditor({
         ref={ref}
         contentEditable
         suppressContentEditableWarning
+        onFocus={onFocus}
         onInput={(e) => onChange((e.target as HTMLDivElement).innerHTML)}
         data-placeholder={placeholder}
         className="min-h-[220px] px-3 py-2 text-sm outline-none [&:empty]:before:text-gray-400 [&:empty]:before:content-[attr(data-placeholder)]"
