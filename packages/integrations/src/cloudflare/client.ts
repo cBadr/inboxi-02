@@ -63,33 +63,49 @@ export class CloudflareClient {
     return r.result.id;
   }
 
-  async upsertRecord(zoneId: string, record: DnsRecord): Promise<void> {
-    const recordName = record.name === '@' ? '' : record.name;
-    const existing = await this.call<Array<{ id: string; name: string; type: string }>>(
-      `/zones/${zoneId}/dns_records?type=${record.type}`,
-    );
-    const fqdn = recordName ? `${recordName}` : '';
-    const match = existing.success
-      ? existing.result.find((r) => r.name.startsWith(fqdn) && r.type === record.type)
-      : undefined;
+  private async zoneName(zoneId: string): Promise<string> {
+    const r = await this.call<{ name: string }>(`/zones/${zoneId}`);
+    return r.success ? r.result.name : '';
+  }
 
+  // Upsert a single record, matching by EXACT fully-qualified name + type.
+  // If several records share that name+type (a duplicate left behind by an
+  // earlier loose match — e.g. a stale DKIM key), the first is updated to the
+  // desired content and the rest are deleted, so the zone self-heals to exactly
+  // one record. `zoneFqdn` is the zone's apex name (e.g. "inboxi.online").
+  async upsertRecord(zoneId: string, record: DnsRecord, zoneFqdn?: string): Promise<void> {
+    const apex = zoneFqdn ?? (await this.zoneName(zoneId));
+    const fqdn = record.name === '@' ? apex : `${record.name}.${apex}`;
+    const existing = await this.call<Array<{ id: string; name: string; type: string }>>(
+      `/zones/${zoneId}/dns_records?type=${record.type}&name=${encodeURIComponent(fqdn)}`,
+    );
+    const matches = existing.success
+      ? existing.result.filter((r) => r.name === fqdn && r.type === record.type)
+      : [];
+
+    // Cloudflare requires `name` on PUT; for the apex use the zone fqdn.
     const body = JSON.stringify({
       type: record.type,
-      name: record.name === '@' ? undefined : record.name,
+      name: fqdn,
       content: record.content,
       priority: record.priority,
       ttl: record.ttl ?? 1,
     });
 
-    if (match) {
-      await this.call(`/zones/${zoneId}/dns_records/${match.id}`, { method: 'PUT', body });
-    } else {
+    if (matches.length === 0) {
       await this.call(`/zones/${zoneId}/dns_records`, { method: 'POST', body });
+      return;
+    }
+    // Update the first match to the desired content; delete any duplicates.
+    await this.call(`/zones/${zoneId}/dns_records/${matches[0]!.id}`, { method: 'PUT', body });
+    for (const dup of matches.slice(1)) {
+      await this.deleteRecord(zoneId, dup.id);
     }
   }
 
   async upsertRecords(zoneId: string, records: DnsRecord[]): Promise<void> {
-    for (const r of records) await this.upsertRecord(zoneId, r);
+    const apex = await this.zoneName(zoneId);
+    for (const r of records) await this.upsertRecord(zoneId, r, apex);
   }
 
   // Generic record CRUD for the custom DNS manager.

@@ -25,7 +25,6 @@ export interface DnsPlanInput {
 export function planDnsRecords(input: DnsPlanInput): DnsRecord[] {
   const records: DnsRecord[] = [
     { type: 'MX', name: '@', content: input.mailHost, priority: 10 },
-    { type: 'A', name: mailSubdomain(input.mailHost, input.domain), content: input.serverIp },
     { type: 'TXT', name: '@', content: `v=spf1 a mx ip4:${input.serverIp} ~all` },
     {
       type: 'TXT',
@@ -44,6 +43,19 @@ export function planDnsRecords(input: DnsPlanInput): DnsRecord[] {
       content: `v=TLSRPTv1; rua=mailto:tlsrpt@${input.domain}`,
     },
   ];
+
+  // The mail host's A record only belongs in the zone that actually hosts the
+  // MTA. Secondary domains share a central mail host (e.g. mail.inboxi.online)
+  // whose A record lives in the primary zone — they must NOT create a nested
+  // `mail.inboxi.online.<secondary>` record. Add it only when the mail host is
+  // within this domain.
+  if (input.mailHost === input.domain || input.mailHost.endsWith(`.${input.domain}`)) {
+    records.push({
+      type: 'A',
+      name: mailSubdomain(input.mailHost, input.domain),
+      content: input.serverIp,
+    });
+  }
 
   if (input.includeWebA) {
     records.push({ type: 'A', name: '@', content: input.serverIp });
