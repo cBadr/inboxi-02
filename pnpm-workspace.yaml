@@ -1,3 +1,11 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# Allow these dependencies' install scripts to run (engine/binary downloads).
+# Lives here (not package.json) for pnpm 10+.
+onlyBuiltDependencies:
+  - "@prisma/client"
+  - "@prisma/engines"
+  - prisma
+  - esbuild
