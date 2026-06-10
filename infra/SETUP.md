@@ -94,10 +94,18 @@ sudo systemctl enable --now haraka-inbound haraka-outbound rspamd
 
 ```bash
 sudo cp infra/nginx/inboxi.conf /etc/nginx/sites-available/inboxi
-sudo ln -s /etc/nginx/sites-available/inboxi /etc/nginx/sites-enabled/
-sudo certbot --nginx -d inboxi.online -d www.inboxi.online
+sudo ln -sf /etc/nginx/sites-available/inboxi /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl reload nginx
+# Set the Cloudflare records to "DNS only" (grey cloud) first so Let's Encrypt
+# reaches the origin directly. Then issue the cert (certbot injects the 443 block):
+sudo certbot --nginx -d inboxi.online      # add  -d www.inboxi.online  only if a www DNS record exists
 ```
+
+> The nginx config is **HTTP-only** on purpose — certbot adds the TLS/443 block.
+> Never hardcode `ssl_certificate` paths before the cert exists, or `nginx -t`
+> fails and the site never comes up (Cloudflare shows **521**).
+> **Keep `mail` as DNS-only (grey) always** — SMTP cannot be proxied by Cloudflare.
 
 ## 7. Verify (go-live)
 
