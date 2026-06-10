@@ -242,11 +242,26 @@ export interface DeliverabilityCheck {
 }
 
 export interface DeliverabilityView {
-  score: number;
+  score: number; // overall deliverability (% of checks passing)
+  inbox: number; // estimated inbox-placement % (weighted by inbox impact)
   checks: DeliverabilityCheck[];
   recommendations: string[];
   dnsFixable: boolean; // any failing check is auto-fixable via Provision DNS
 }
+
+// Inbox-placement weights: how much each signal influences landing in the inbox
+// (vs spam/blocked). Sums to 100 — passing checks accumulate their weight.
+const INBOX_WEIGHTS: Record<string, number> = {
+  mx: 5,
+  spf: 12,
+  dkim: 13,
+  dkim_key: 5,
+  dkim_published: 10,
+  dmarc: 10,
+  ptr: 15,
+  smtp: 5,
+  blacklist: 25,
+};
 
 interface DomainForDeliverability {
   name: string;
@@ -360,6 +375,7 @@ export async function getDeliverability(
     },
   ];
   const score = Math.round((checks.filter((c) => c.ok).length / checks.length) * 100);
+  const inbox = checks.reduce((sum, c) => sum + (c.ok ? (INBOX_WEIGHTS[c.key] ?? 0) : 0), 0);
   const dnsFixable = checks.some((c) => !c.ok && c.fix === 'dns');
 
   const recommendations: string[] = [];
@@ -377,7 +393,30 @@ export async function getDeliverability(
   if (recommendations.length === 0)
     recommendations.push('Excellent — full authentication, reachable MTA, clean reputation. Inbox-ready.');
 
-  return { score, checks, recommendations, dnsFixable };
+  return { score, inbox, checks, recommendations, dnsFixable };
+}
+
+// Full re-scan for a single domain: refresh the live DNS report + blacklist
+// checks, recompute the deliverability + inbox-placement scores, and persist
+// them on the domain so the list can render them instantly. Returns the view.
+export async function rescanDeliverability(domainId: string): Promise<DeliverabilityView | null> {
+  await verifyDomainDns(domainId).catch(() => {});
+  await runReputationScan(domainId).catch(() => {});
+  const domain = await prisma.domain.findUnique({
+    where: { id: domainId },
+    include: { reputationChecks: { orderBy: { checkedAt: 'desc' }, take: 6 } },
+  });
+  if (!domain) return null;
+  const view = await getDeliverability(domain);
+  await prisma.domain.update({
+    where: { id: domainId },
+    data: {
+      deliverabilityScore: view.score,
+      inboxScore: view.inbox,
+      deliverabilityCheckedAt: new Date(),
+    },
+  });
+  return view;
 }
 
 // Planned records for display/copy in the admin UI.

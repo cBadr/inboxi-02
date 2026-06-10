@@ -28,6 +28,17 @@ export async function GET(req: NextRequest) {
     });
     if (!fresh) continue;
     const view = await getDeliverability(fresh);
+    // Persist the snapshot so the admin domains list renders fresh scores.
+    await prisma.domain
+      .update({
+        where: { id: d.id },
+        data: {
+          deliverabilityScore: view.score,
+          inboxScore: view.inbox,
+          deliverabilityCheckedAt: new Date(),
+        },
+      })
+      .catch(() => {});
     const failing = view.checks.filter((c) => !c.ok).map((c) => c.label);
     if (view.score < 100 && failing.length > 0) {
       problems.push({ domain: d.name, score: view.score, issues: failing });

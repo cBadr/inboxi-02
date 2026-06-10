@@ -250,6 +250,11 @@ model Domain {
   dnsReport         Json? // last DNS verification report (per-record check items)
   verificationToken String?
 
+  // Cached deliverability snapshot (recomputed on rescan / autofix / cron)
+  deliverabilityScore     Int? // overall deliverability %, 0-100
+  inboxScore              Int? // estimated inbox-placement %, 0-100
+  deliverabilityCheckedAt DateTime?
+
   // DKIM (one key pair per domain)
   dkimSelector    String    @default("inboxi")
   dkimPublicKey   String?

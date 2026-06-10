@@ -7,7 +7,7 @@ import { generateDkimKeyPair } from '@inboxi/integrations/cloudflare';
 import { requireAdmin } from '@/lib/session';
 import { setSetting } from '@/lib/settings';
 import { provisionDomainDns } from '@/lib/dns';
-import { verifyDomainDns, runReputationScan } from '@/lib/domain-health';
+import { verifyDomainDns, runReputationScan, rescanDeliverability } from '@/lib/domain-health';
 import { encryptSecret } from '@/lib/crypto';
 import { syncHostList, ensureCatchAllMailbox } from '@/lib/haraka';
 import { writeAudit } from '@/lib/audit';
@@ -111,11 +111,19 @@ export async function autoFixDns(formData: FormData): Promise<void> {
   const admin = await requireAdmin();
   const id = String(formData.get('id') ?? '');
   await provisionDomainDns(id);
-  await verifyDomainDns(id);
-  await runReputationScan(id).catch(() => {});
+  await rescanDeliverability(id).catch(() => {});
   await writeAudit({ actorId: admin.id, action: 'domain.autofix_dns', entity: 'domain', entityId: id });
   revalidatePath(`/admin/domains/${id}`);
   revalidatePath('/admin/domains');
+}
+
+// Per-domain deliverability + inbox-placement re-check (used by the list row).
+export async function rescanDomain(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const id = String(formData.get('id') ?? '');
+  await rescanDeliverability(id).catch(() => {});
+  revalidatePath('/admin/domains');
+  revalidatePath(`/admin/domains/${id}`);
 }
 
 export async function scanReputation(formData: FormData): Promise<void> {
@@ -179,6 +187,25 @@ export async function assignDomain(formData: FormData): Promise<void> {
   const domain = await prisma.domain.findUnique({ where: { id: domainId } });
   if (domain) await ensureCatchAllMailbox(domain.id, domain.name, user.id);
   revalidatePath(`/admin/domains/${domainId}`);
+  revalidatePath('/admin/domains');
+}
+
+// Assign a domain to an entire group at once — every member of the group gains
+// access in a single action ("a batch of users").
+export async function assignDomainToGroup(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const domainId = String(formData.get('domainId') ?? '');
+  const groupId = String(formData.get('groupId') ?? '');
+  if (!groupId) return;
+  const group = await prisma.group.findUnique({ where: { id: groupId } });
+  if (!group) return;
+  await prisma.domainAssignment.upsert({
+    where: { domainId_groupId: { domainId, groupId } },
+    update: {},
+    create: { domainId, groupId },
+  });
+  revalidatePath('/admin/domains');
+  revalidatePath(`/admin/domains/${domainId}`);
 }
 
 export async function unassignDomain(formData: FormData): Promise<void> {
@@ -187,6 +214,7 @@ export async function unassignDomain(formData: FormData): Promise<void> {
   const domainId = String(formData.get('domainId') ?? '');
   await prisma.domainAssignment.delete({ where: { id: assignmentId } }).catch(() => {});
   revalidatePath(`/admin/domains/${domainId}`);
+  revalidatePath('/admin/domains');
 }
 
 export async function saveGeneralSettings(
