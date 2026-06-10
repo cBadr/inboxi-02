@@ -1,3 +1,0 @@
-# Outbound relay: accept submissions from the loopback ACL and deliver to the
-# internet. DKIM is already applied by the web app's delivery layer.
-relay

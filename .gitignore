@@ -43,6 +43,11 @@ data/
 attachments/
 mta-queue/
 
+# Haraka config is generated on the server by infra/setup-haraka.sh
+# (Haraka defaults + customizations). Only our plugins/ and lib/ are tracked.
+apps/mta-inbound/config/
+apps/mta-outbound/config/
+
 # Test
 coverage/
 playwright-report/
