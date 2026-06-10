@@ -44,6 +44,26 @@ export const sendMessageSchema = z.object({
   attachments: z.array(outboundAttachmentSchema).max(10).optional(),
 });
 
+export const composeRecipientSchema = z.object({
+  email: emailSchema,
+  // Per-recipient merge variables (e.g. from a CSV import): {{name}} etc.
+  vars: z.record(z.string(), z.string().max(2000)).optional(),
+});
+
+export const composeSchema = z.object({
+  from: emailSchema,
+  recipients: z.array(composeRecipientSchema).min(1).max(1000),
+  subject: z.string().max(255).optional(),
+  text: z.string().max(100_000).optional(),
+  html: z.string().max(500_000).optional(),
+  attachments: z.array(outboundAttachmentSchema).max(10).optional(),
+  // ISO timestamp; when in the future the message is scheduled, else sent now.
+  scheduleAt: z.string().datetime().optional(),
+});
+
+export type ComposeInput = z.infer<typeof composeSchema>;
+export type ComposeRecipient = z.infer<typeof composeRecipientSchema>;
+
 export const createDomainSchema = z.object({
   name: z
     .string()
