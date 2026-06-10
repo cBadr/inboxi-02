@@ -10,6 +10,7 @@ import { provisionDomainDns } from '@/lib/dns';
 import { verifyDomainDns, runReputationScan } from '@/lib/domain-health';
 import { encryptSecret } from '@/lib/crypto';
 import { syncHostList, ensureCatchAllMailbox } from '@/lib/haraka';
+import { writeAudit } from '@/lib/audit';
 
 export interface ActionResult {
   ok: boolean;
@@ -107,11 +108,12 @@ export async function recheckDns(formData: FormData): Promise<void> {
 
 // One-click auto-fix: (re)provision all DNS records via Cloudflare, then verify.
 export async function autoFixDns(formData: FormData): Promise<void> {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const id = String(formData.get('id') ?? '');
   await provisionDomainDns(id);
   await verifyDomainDns(id);
   await runReputationScan(id).catch(() => {});
+  await writeAudit({ actorId: admin.id, action: 'domain.autofix_dns', entity: 'domain', entityId: id });
   revalidatePath(`/admin/domains/${id}`);
   revalidatePath('/admin/domains');
 }
@@ -124,7 +126,7 @@ export async function scanReputation(formData: FormData): Promise<void> {
 }
 
 export async function regenDkim(formData: FormData): Promise<void> {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const id = String(formData.get('id') ?? '');
   const kp = generateDkimKeyPair();
   await prisma.domain.update({
@@ -138,6 +140,7 @@ export async function regenDkim(formData: FormData): Promise<void> {
   // Push the new DKIM record to Cloudflare (and re-verify) automatically.
   await provisionDomainDns(id).catch(() => {});
   await verifyDomainDns(id).catch(() => {});
+  await writeAudit({ actorId: admin.id, action: 'domain.regen_dkim', entity: 'domain', entityId: id });
   revalidatePath(`/admin/domains/${id}`);
 }
 

@@ -91,4 +91,38 @@ export class CloudflareClient {
   async upsertRecords(zoneId: string, records: DnsRecord[]): Promise<void> {
     for (const r of records) await this.upsertRecord(zoneId, r);
   }
+
+  // Generic record CRUD for the custom DNS manager.
+  async listRecords(zoneId: string): Promise<CloudflareRecord[]> {
+    const r = await this.call<CloudflareRecord[]>(`/zones/${zoneId}/dns_records?per_page=200`);
+    return r.success ? r.result : [];
+  }
+
+  async createRecord(zoneId: string, record: DnsRecord): Promise<void> {
+    await this.call(`/zones/${zoneId}/dns_records`, {
+      method: 'POST',
+      body: JSON.stringify({
+        type: record.type,
+        name: record.name === '@' ? undefined : record.name,
+        content: record.content,
+        priority: record.priority,
+        ttl: record.ttl ?? 1,
+        proxied: false,
+      }),
+    });
+  }
+
+  async deleteRecord(zoneId: string, recordId: string): Promise<void> {
+    await this.call(`/zones/${zoneId}/dns_records/${recordId}`, { method: 'DELETE' });
+  }
+}
+
+export interface CloudflareRecord {
+  id: string;
+  type: string;
+  name: string;
+  content: string;
+  priority?: number;
+  ttl: number;
+  proxied?: boolean;
 }

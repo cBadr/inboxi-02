@@ -341,6 +341,7 @@ export function plannedRecordsFor(domain: {
   name: string;
   dkimSelector: string;
   dkimPublicKey: string | null;
+  dmarcPolicy?: string;
 }): DnsRecord[] {
   return planDnsRecords({
     domain: domain.name,
@@ -348,6 +349,8 @@ export function plannedRecordsFor(domain: {
     serverIp: process.env.SERVER_IP ?? '127.0.0.1',
     dkimSelector: domain.dkimSelector,
     dkimPublicKeyDns: domain.dkimPublicKey ?? '(provision DNS to generate)',
+    dmarcPolicy: (domain.dmarcPolicy as 'none' | 'quarantine' | 'reject') ?? 'quarantine',
     includeWebA: true,
+    includeMtaSts: true,
   });
 }

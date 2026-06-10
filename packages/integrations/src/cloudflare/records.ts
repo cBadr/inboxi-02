@@ -17,7 +17,9 @@ export interface DnsPlanInput {
   dkimSelector: string; // e.g. inboxi
   dkimPublicKeyDns: string; // base64 SPKI body for the DKIM TXT record
   dmarcReportTo?: string; // mailbox for aggregate reports
+  dmarcPolicy?: 'none' | 'quarantine' | 'reject'; // default quarantine
   includeWebA?: boolean; // add an A record for the apex pointing at the server
+  includeMtaSts?: boolean; // add MTA-STS records (policy served by the web app)
 }
 
 export function planDnsRecords(input: DnsPlanInput): DnsRecord[] {
@@ -33,7 +35,7 @@ export function planDnsRecords(input: DnsPlanInput): DnsRecord[] {
     {
       type: 'TXT',
       name: '_dmarc',
-      content: `v=DMARC1; p=quarantine; rua=mailto:${input.dmarcReportTo ?? `dmarc@${input.domain}`}; fo=1`,
+      content: `v=DMARC1; p=${input.dmarcPolicy ?? 'quarantine'}; rua=mailto:${input.dmarcReportTo ?? `dmarc@${input.domain}`}; fo=1`,
     },
     {
       // SMTP TLS reporting (RFC 8460) — improves trust + surfaces TLS issues.
@@ -46,6 +48,13 @@ export function planDnsRecords(input: DnsPlanInput): DnsRecord[] {
   if (input.includeWebA) {
     records.push({ type: 'A', name: '@', content: input.serverIp });
   }
+
+  if (input.includeMtaSts) {
+    // MTA-STS: policy is served by the web app at https://mta-sts.<domain>/.well-known/mta-sts.txt
+    records.push({ type: 'A', name: 'mta-sts', content: input.serverIp });
+    records.push({ type: 'TXT', name: '_mta-sts', content: 'v=STSv1; id=inboxi1' });
+  }
+
   return records;
 }
 

@@ -32,6 +32,7 @@ export async function provisionDomainDns(domainId: string): Promise<DnsProvision
       data: {
         dkimPublicKey: kp.publicKeyDns,
         dkimPrivateKey: encryptSecret(kp.privateKeyPem),
+        dkimGeneratedAt: new Date(),
       },
     });
   }
@@ -42,7 +43,9 @@ export async function provisionDomainDns(domainId: string): Promise<DnsProvision
     serverIp: process.env.SERVER_IP ?? '127.0.0.1',
     dkimSelector: domain.dkimSelector,
     dkimPublicKeyDns: publicKeyDns ?? '',
+    dmarcPolicy: (domain.dmarcPolicy as 'none' | 'quarantine' | 'reject') ?? 'quarantine',
     includeWebA: true,
+    includeMtaSts: true,
   });
 
   const token = process.env.CLOUDFLARE_API_TOKEN;

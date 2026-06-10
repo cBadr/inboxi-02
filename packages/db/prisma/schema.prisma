@@ -251,9 +251,16 @@ model Domain {
   verificationToken String?
 
   // DKIM (one key pair per domain)
-  dkimSelector   String  @default("inboxi")
-  dkimPublicKey  String?
-  dkimPrivateKey String? // encrypted at rest
+  dkimSelector    String    @default("inboxi")
+  dkimPublicKey   String?
+  dkimPrivateKey  String? // encrypted at rest
+  dkimGeneratedAt DateTime?
+
+  // DMARC policy: none | quarantine | reject
+  dmarcPolicy String @default("quarantine")
+
+  // Ownership verification (custom domains)
+  verifiedAt DateTime?
 
   // Catch-all primary mailbox for this domain
   catchAllMailboxId String?  @unique

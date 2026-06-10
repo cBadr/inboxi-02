@@ -9,6 +9,10 @@ const nextConfig = {
       bodySizeLimit: '5mb',
     },
   },
+  async rewrites() {
+    // Serve the MTA-STS policy at the well-known path (on mta-sts.<domain>).
+    return [{ source: '/.well-known/mta-sts.txt', destination: '/api/mta-sts' }];
+  },
   async headers() {
     const securityHeaders = [
       { key: 'X-Frame-Options', value: 'DENY' },

@@ -6,12 +6,22 @@ import { plannedRecordsFor, getDeliverability } from '@/lib/domain-health';
 import { CopyButton } from '@/components/CopyButton';
 import { DomainActions } from '@/components/DomainActions';
 import { FixDnsButton } from '@/components/FixDnsButton';
+import { ModuleActionForm } from '@/components/ModuleActionForm';
 import {
   setDomainAvailability,
   deleteDomain,
   assignDomain,
   unassignDomain,
 } from '../../actions';
+import {
+  setDmarcPolicy,
+  generateVerification,
+  verifyOwnership,
+  listDnsRecords,
+  addDnsRecord,
+  deleteDnsRecord,
+  sendDomainTest,
+} from '../../domain-actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -91,6 +101,17 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
     where: { domainId: domain.id, type: { not: 'CATCH_ALL' } },
   });
   const deliverability = await getDeliverability(domain);
+
+  // Sending stats for the domain (outbound from any address on it).
+  const fromFilter = { fromAddress: { endsWith: `@${domain.name}` } };
+  const [sentCount, failedCount, blockedCount, cfRecords, auditLog, lastSends] = await Promise.all([
+    prisma.outboundMessage.count({ where: { ...fromFilter, status: 'SENT' } }),
+    prisma.outboundMessage.count({ where: { ...fromFilter, status: { in: ['FAILED', 'BOUNCED', 'COMPLAINED'] } } }),
+    prisma.outboundMessage.count({ where: { ...fromFilter, status: 'BLOCKED' } }),
+    listDnsRecords(domain.id),
+    prisma.auditLog.findMany({ where: { entityId: domain.id }, orderBy: { createdAt: 'desc' }, take: 8 }),
+    prisma.outboundMessage.findMany({ where: fromFilter, orderBy: { createdAt: 'desc' }, take: 5 }),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -263,13 +284,173 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
               <button className="text-xs text-brand hover:underline">Save</button>
             </form>
           </Row>
+          <Row label="DMARC policy">
+            <form action={setDmarcPolicy} className="flex items-center gap-2">
+              <input type="hidden" name="id" value={domain.id} />
+              <select name="dmarcPolicy" defaultValue={domain.dmarcPolicy} className="rounded border px-2 py-1 text-xs">
+                <option value="none">none (monitor)</option>
+                <option value="quarantine">quarantine</option>
+                <option value="reject">reject (strict)</option>
+              </select>
+              <button className="text-xs text-brand hover:underline">Apply</button>
+            </form>
+          </Row>
           <Row label="DNS provider">{domain.dnsProvider}</Row>
           <Row label="Cloudflare zone">{domain.cloudflareZoneId ?? '—'}</Row>
           <Row label="DKIM selector">{domain.dkimSelector}</Row>
+          <Row label="DKIM key age">
+            {domain.dkimGeneratedAt ? (
+              <DkimAge generatedAt={domain.dkimGeneratedAt} />
+            ) : (
+              <span className="text-gray-400">—</span>
+            )}
+          </Row>
+          <Row label="Ownership">
+            {domain.verifiedAt ? (
+              <span className="text-green-600">verified ✓</span>
+            ) : (
+              <span className="text-gray-400">unverified</span>
+            )}
+          </Row>
           <Row label="Mailboxes">{domain._count.mailboxes}</Row>
-          <Row label="Created">{domain.createdAt.toLocaleDateString()}</Row>
         </dl>
       </div>
+
+      {/* Sending stats + test */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-lg border bg-white p-4">
+          <h2 className="mb-3 text-sm font-semibold">Sending activity</h2>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <Stat label="Sent" value={sentCount} color="text-green-600" />
+            <Stat label="Failed/bounced" value={failedCount} color="text-red-500" />
+            <Stat label="Blocked" value={blockedCount} color="text-amber-600" />
+          </div>
+          {lastSends.length > 0 && (
+            <ul className="mt-3 space-y-1 border-t pt-2 text-xs text-gray-500">
+              {lastSends.map((s) => (
+                <li key={s.id} className="flex justify-between gap-2">
+                  <span className="truncate">{s.toAddress}</span>
+                  <span className={s.status === 'SENT' ? 'text-green-600' : 'text-red-500'}>{s.status}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="rounded-lg border bg-white p-4">
+          <h2 className="mb-3 text-sm font-semibold">Send a test message</h2>
+          <ModuleActionForm action={sendDomainTest} submitLabel="Send test" successText="Sent ✓">
+            <input type="hidden" name="domainId" value={domain.id} />
+            <div className="flex items-center gap-1 text-sm">
+              <input name="localPart" defaultValue="postmaster" className="w-32 rounded border px-2 py-1" />
+              <span className="text-gray-400">@{domain.name}</span>
+            </div>
+            <input name="to" type="email" placeholder="recipient@example.com" className="w-full rounded border px-2 py-1 text-sm" />
+          </ModuleActionForm>
+        </div>
+      </div>
+
+      {/* Ownership verification (for custom domains) */}
+      {!domain.verifiedAt && (
+        <div className="rounded-lg border bg-white p-4">
+          <h2 className="mb-2 text-sm font-semibold">Verify domain ownership</h2>
+          {domain.verificationToken ? (
+            <div className="text-sm">
+              <p className="text-gray-600">Add this TXT record, then click Verify:</p>
+              <div className="mt-2 flex items-center gap-2 rounded bg-gray-50 p-2 font-mono text-xs">
+                <span>TXT</span>
+                <span>_inboxi-verify.{domain.name}</span>
+                <span className="truncate">{domain.verificationToken}</span>
+                <CopyButton value={domain.verificationToken} />
+              </div>
+              <form action={verifyOwnership} className="mt-2">
+                <input type="hidden" name="id" value={domain.id} />
+                <button className="rounded bg-brand px-3 py-1.5 text-sm text-white hover:bg-brand-dark">
+                  Verify now
+                </button>
+              </form>
+            </div>
+          ) : (
+            <form action={generateVerification}>
+              <input type="hidden" name="id" value={domain.id} />
+              <button className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50">
+                Generate verification token
+              </button>
+            </form>
+          )}
+        </div>
+      )}
+
+      {/* Custom DNS records (Cloudflare) */}
+      <details className="rounded-lg border bg-white p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-gray-700">
+          Custom DNS records{' '}
+          <span className="font-normal text-gray-400">
+            ({cfRecords.length} via Cloudflare{domain.cloudflareZoneId ? '' : ' — no zone yet'})
+          </span>
+        </summary>
+        <div className="mt-3">
+          <ModuleActionForm
+            action={addDnsRecord}
+            submitLabel="Add record"
+            className="mb-3 flex flex-wrap items-end gap-2 rounded border bg-gray-50 p-3"
+          >
+            <input type="hidden" name="domainId" value={domain.id} />
+            <select name="type" className="rounded border px-2 py-1 text-sm">
+              {['A', 'AAAA', 'CNAME', 'TXT', 'MX'].map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+            <input name="name" placeholder="name (@ for root)" className="w-32 rounded border px-2 py-1 text-sm" />
+            <input name="content" placeholder="value" className="w-48 rounded border px-2 py-1 text-sm" />
+            <input name="priority" type="number" placeholder="prio" className="w-16 rounded border px-2 py-1 text-sm" />
+          </ModuleActionForm>
+          <table className="w-full text-sm">
+            <tbody className="divide-y">
+              {cfRecords.length === 0 && (
+                <tr>
+                  <td className="py-2 text-gray-400">
+                    {domain.cloudflareZoneId ? 'No records.' : 'Provision DNS first to create a Cloudflare zone.'}
+                  </td>
+                </tr>
+              )}
+              {cfRecords.map((r) => (
+                <tr key={r.id}>
+                  <td className="py-1 font-medium">{r.type}</td>
+                  <td className="py-1 font-mono text-xs">{r.name}</td>
+                  <td className="py-1 max-w-xs truncate font-mono text-xs">{r.content}</td>
+                  <td className="py-1 text-right">
+                    <form action={deleteDnsRecord}>
+                      <input type="hidden" name="domainId" value={domain.id} />
+                      <input type="hidden" name="recordId" value={r.id} />
+                      <button className="text-xs text-red-500 hover:underline">Delete</button>
+                    </form>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      {/* Audit timeline */}
+      {auditLog.length > 0 && (
+        <details className="rounded-lg border bg-white p-4">
+          <summary className="cursor-pointer text-sm font-semibold text-gray-700">
+            Activity log <span className="font-normal text-gray-400">({auditLog.length})</span>
+          </summary>
+          <ul className="mt-3 space-y-1 text-xs">
+            {auditLog.map((a) => (
+              <li key={a.id} className="flex justify-between gap-2">
+                <span className="font-mono text-gray-600">{a.action}</span>
+                <span className="text-gray-400">{a.createdAt.toLocaleString()}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {/* DNS verification report (collapsible — needed mainly during setup / troubleshooting) */}
       <details className="rounded-lg border bg-white p-4">
@@ -365,6 +546,25 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
         </ul>
       </div>
     </div>
+  );
+}
+
+function Stat({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="rounded border p-2">
+      <div className={`text-xl font-bold ${color}`}>{value}</div>
+      <div className="text-xs text-gray-400">{label}</div>
+    </div>
+  );
+}
+
+function DkimAge({ generatedAt }: { generatedAt: Date }) {
+  const days = Math.floor((Date.now() - new Date(generatedAt).getTime()) / 86_400_000);
+  const stale = days > 180;
+  return (
+    <span className={stale ? 'text-amber-600' : 'text-gray-600'}>
+      {days}d{stale ? ' · rotate recommended' : ''}
+    </span>
   );
 }
 

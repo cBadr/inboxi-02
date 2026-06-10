@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { prisma } from '@inboxi/db';
 import { requireAdmin } from '@/lib/session';
 import { NewDomainForm } from '@/components/NewDomainForm';
+import { bulkProvisionAll, bulkRecheckAll } from '../domain-actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,8 +36,22 @@ export default async function AdminDomainsPage() {
         Add domains, automate Cloudflare DNS, verify records, and monitor sender reputation.
       </p>
 
-      <div className="mt-4">
-        <NewDomainForm />
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <div className="flex-1">
+          <NewDomainForm />
+        </div>
+        <div className="flex gap-2">
+          <form action={bulkProvisionAll}>
+            <button className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50">
+              Provision all
+            </button>
+          </form>
+          <form action={bulkRecheckAll}>
+            <button className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50">
+              Re-check all
+            </button>
+          </form>
+        </div>
       </div>
 
       <table className="mt-6 w-full overflow-hidden rounded-lg border bg-white text-sm">
