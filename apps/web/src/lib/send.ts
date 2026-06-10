@@ -155,6 +155,7 @@ export async function sendMail(user: CurrentUser, input: SendMessageInput): Prom
 
   const result = await deliverWithFailover(chain, {
     from: fromAddress,
+    fromName: input.fromName,
     to: input.to,
     subject: input.subject,
     text: input.text,

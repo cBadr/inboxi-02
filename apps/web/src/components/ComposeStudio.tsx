@@ -1,8 +1,11 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { RichEditor, type RichEditorHandle } from './RichEditor';
+
+type NameMode = 'single' | 'sequential' | 'random';
+const NAMES_STORAGE_KEY = 'inboxi.senderNames';
 
 interface Recipient {
   email: string;
@@ -21,7 +24,12 @@ const SYSTEM_VARS = ['to', 'from', 'date', 'domain'];
 const DYNAMIC_VARS: Array<{ token: string; hint: string }> = [
   { token: '{{random:6}}', hint: 'Random number with N digits (e.g. {{random:8}})' },
   { token: '{{md5}}', hint: 'Random MD5 hash (32 hex). {{md5:12}} for a shorter one' },
-  { token: '{{randmail}}', hint: 'Random local part — use in From for a random sender' },
+  { token: '{{uuid}}', hint: 'Random UUID v4 — unique per message (tracking/unsubscribe IDs)' },
+  { token: '{{random_string:8}}', hint: 'Random alphanumeric token of N chars' },
+  { token: '{{random_hex:16}}', hint: 'Random hex token of N chars' },
+  { token: '{{random_name}}', hint: 'A random human first name' },
+  { token: '{{datetime}}', hint: 'Current date & time' },
+  { token: '{{year}}', hint: 'Current year' },
 ];
 
 function fmtSize(b: number): string {
@@ -74,6 +82,34 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
   const [domain, setDomain] = useState(
     pFromParts && domains.includes(pFromParts[1]!) ? pFromParts[1]! : domains[0] ?? '',
   );
+
+  // From display name + rotation pool (pool persisted in localStorage).
+  const [nameMode, setNameMode] = useState<NameMode>('single');
+  const [fromNameSingle, setFromNameSingle] = useState('');
+  const [namePool, setNamePool] = useState<string[]>([]);
+  const [newName, setNewName] = useState('');
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(NAMES_STORAGE_KEY);
+      if (raw) setNamePool(JSON.parse(raw));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(NAMES_STORAGE_KEY, JSON.stringify(namePool));
+    } catch {
+      /* ignore */
+    }
+  }, [namePool]);
+
+  const addName = () => {
+    const v = newName.trim();
+    if (v && !namePool.includes(v)) setNamePool((p) => [...p, v]);
+    setNewName('');
+  };
   const [recipients, setRecipients] = useState<Recipient[]>(
     pTo && pTo.includes('@') ? [{ email: pTo.toLowerCase() }] : [],
   );
@@ -278,6 +314,12 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
         subject,
       };
       payload[mode] = body;
+      if (nameMode === 'single') {
+        if (fromNameSingle.trim()) payload.fromName = fromNameSingle.trim();
+      } else if (namePool.length > 0) {
+        payload.fromNameMode = nameMode;
+        payload.fromNames = namePool;
+      }
       if (files.length) {
         payload.attachments = files.map((f) => ({
           filename: f.filename,
@@ -354,6 +396,75 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
             Sending as <span className="font-mono text-gray-500">{fromAddress}</span>
           </span>
         </div>
+      </Section>
+
+      {/* From name */}
+      <Section title="From name" hint="Shown as the sender's display name">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {(['single', 'sequential', 'random'] as NameMode[]).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setNameMode(m)}
+              className={`rounded-lg border px-3 py-1.5 text-sm capitalize transition ${nameMode === m ? 'border-brand bg-brand/5 text-brand' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              {m === 'single' ? 'Single' : m === 'sequential' ? 'Rotate in order' : 'Random'}
+            </button>
+          ))}
+        </div>
+
+        {nameMode === 'single' ? (
+          <input
+            value={fromNameSingle}
+            onChange={(e) => setFromNameSingle(e.target.value)}
+            placeholder="e.g. Inboxi Team — supports {{variables}}"
+            className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+          />
+        ) : (
+          <div>
+            <div className="mb-2 flex gap-2">
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addName())}
+                placeholder="Add a name to the pool…"
+                className="flex-1 rounded-lg border px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+              />
+              <button
+                type="button"
+                onClick={addName}
+                className="rounded-lg bg-brand px-3 py-2 text-sm text-white hover:bg-brand-dark"
+              >
+                Add
+              </button>
+            </div>
+            {namePool.length === 0 ? (
+              <p className="text-xs text-gray-400">
+                No names yet — add a few. They&apos;re saved in this browser and{' '}
+                {nameMode === 'sequential' ? 'rotated in order' : 'picked at random'} per message.
+              </p>
+            ) : (
+              <ul className="flex flex-wrap gap-1.5">
+                {namePool.map((n) => (
+                  <li
+                    key={n}
+                    className="flex items-center gap-1.5 rounded-full border bg-white px-2.5 py-1 text-xs"
+                  >
+                    <span className="text-gray-700">{n}</span>
+                    <button
+                      type="button"
+                      onClick={() => setNamePool((p) => p.filter((x) => x !== n))}
+                      className="text-gray-300 hover:text-red-500"
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-1.5 text-[11px] text-gray-400">{namePool.length} name(s) in pool</p>
+          </div>
+        )}
       </Section>
 
       {/* Recipients */}

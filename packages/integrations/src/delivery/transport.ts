@@ -28,7 +28,7 @@ export async function deliverVia(
   try {
     const transporter = buildTransporter(cfg);
     const info = await transporter.sendMail({
-      from: msg.from,
+      from: msg.fromName ? { name: msg.fromName, address: msg.from } : msg.from,
       to: msg.to,
       subject: msg.subject,
       text: msg.text,

@@ -37,6 +37,7 @@ export const outboundAttachmentSchema = z.object({
 export const sendMessageSchema = z.object({
   // Any address on a domain the user controls (provisioned or not).
   from: emailSchema,
+  fromName: z.string().max(100).optional(), // display name in the From header
   to: emailSchema,
   subject: z.string().max(255).optional(),
   text: z.string().max(100_000).optional(),
@@ -65,6 +66,11 @@ export const composeSchema = z.object({
   attachments: z.array(outboundAttachmentSchema).max(10).optional(),
   // ISO timestamp; when in the future the message is scheduled, else sent now.
   scheduleAt: z.string().datetime().optional(),
+  // Sender display name. `fromName` is a single fixed name; `fromNames` is a pool
+  // rotated per recipient according to `fromNameMode`.
+  fromName: z.string().max(100).optional(),
+  fromNames: z.array(z.string().max(100)).max(500).optional(),
+  fromNameMode: z.enum(['single', 'sequential', 'random']).optional(),
 });
 
 export type ComposeInput = z.infer<typeof composeSchema>;

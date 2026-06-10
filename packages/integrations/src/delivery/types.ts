@@ -28,6 +28,7 @@ export interface OutgoingAttachment {
 
 export interface OutgoingMessage {
   from: string;
+  fromName?: string; // display name in the From header
   to: string;
   subject?: string;
   text?: string;

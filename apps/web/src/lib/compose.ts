@@ -27,6 +27,17 @@ function contextFor(from: string, recipient: ComposeRecipient): Record<string, u
   };
 }
 
+// Choose the sender display name for recipient #i: a single fixed name, or a
+// name rotated from the pool sequentially (by index) or at random.
+function pickFromName(input: Omit<ComposeInput, 'scheduleAt'>, i: number): string | undefined {
+  const pool = input.fromNames ?? [];
+  if ((input.fromNameMode === 'sequential' || input.fromNameMode === 'random') && pool.length > 0) {
+    if (input.fromNameMode === 'sequential') return pool[i % pool.length];
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  return input.fromName?.trim() || undefined;
+}
+
 // Deliver a composed message to every recipient now, substituting per-recipient
 // variables in the subject + body. Stops early if a send is blocked by quota or
 // anti-abuse (further sends would be blocked too).
@@ -42,7 +53,8 @@ export async function sendComposed(
     errors: [],
   };
 
-  for (const recipient of input.recipients) {
+  for (let i = 0; i < input.recipients.length; i++) {
+    const recipient = input.recipients[i]!;
     // Resolve a (possibly random) from-address first, then expose it in the
     // context so the body can reference {{from}} consistently.
     const from = renderMessage(input.from, contextFor(input.from, recipient));
@@ -50,9 +62,11 @@ export async function sendComposed(
     const subject = input.subject ? renderMessage(input.subject, ctx) : undefined;
     const text = input.text ? renderMessage(input.text, ctx) : undefined;
     const html = input.html ? renderMessage(input.html, ctx) : undefined;
+    const fromName = pickFromName(input, i);
 
     const r = await sendMail(user, {
       from,
+      fromName: fromName ? renderMessage(fromName, ctx) : undefined,
       to: recipient.email,
       subject,
       text,
@@ -86,6 +100,9 @@ export async function scheduleComposed(
     data: {
       userId: user.id,
       fromAddress: input.from,
+      fromName: input.fromName ?? null,
+      fromNames: input.fromNames ?? undefined,
+      fromNameMode: input.fromNameMode ?? null,
       subject: input.subject ?? null,
       bodyText: input.text ?? null,
       bodyHtml: input.html ?? null,
@@ -137,6 +154,9 @@ export async function processScheduledMessage(id: string): Promise<void> {
     text: row.bodyText ?? undefined,
     html: row.bodyHtml ?? undefined,
     attachments,
+    fromName: row.fromName ?? undefined,
+    fromNames: (row.fromNames as string[] | null) ?? undefined,
+    fromNameMode: (row.fromNameMode as ComposeInput['fromNameMode']) ?? undefined,
   });
 
   await prisma.scheduledMessage.update({

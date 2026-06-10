@@ -421,14 +421,17 @@ model OutboundMessage {
 // send-now batch. Recipients + per-recipient variables + attachments are stored
 // as JSON; a cron worker renders templates per recipient and delivers them.
 model ScheduledMessage {
-  id          String  @id @default(cuid())
-  userId      String
-  fromAddress String
-  subject     String?
-  bodyText    String?
-  bodyHtml    String?
-  recipients  Json // [{ email, vars?: Record<string,string> }]
-  attachments Json? // [{ filename, contentType?, contentBase64 }]
+  id           String  @id @default(cuid())
+  userId       String
+  fromAddress  String
+  fromName     String?
+  fromNames    Json? // string[] pool for sequential/random rotation
+  fromNameMode String? // single | sequential | random
+  subject      String?
+  bodyText     String?
+  bodyHtml     String?
+  recipients   Json // [{ email, vars?: Record<string,string> }]
+  attachments  Json? // [{ filename, contentType?, contentBase64 }]
 
   status      String    @default("PENDING") // PENDING | PROCESSING | SENT | FAILED | CANCELED
   scheduleAt  DateTime
