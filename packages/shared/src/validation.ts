@@ -51,7 +51,13 @@ export const composeRecipientSchema = z.object({
 });
 
 export const composeSchema = z.object({
-  from: emailSchema,
+  // A concrete email, OR one containing dynamic tokens (e.g. {{randmail}}@domain)
+  // resolved server-side per message.
+  from: z
+    .string()
+    .min(3)
+    .max(255)
+    .refine((v) => v.includes('{{') || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v), 'Invalid from address'),
   recipients: z.array(composeRecipientSchema).min(1).max(1000),
   subject: z.string().max(255).optional(),
   text: z.string().max(100_000).optional(),

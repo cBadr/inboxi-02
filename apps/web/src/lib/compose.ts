@@ -1,7 +1,8 @@
 import { prisma } from '@inboxi/db';
-import { renderTemplate, type ComposeInput, type ComposeRecipient } from '@inboxi/shared';
+import type { ComposeInput, ComposeRecipient } from '@inboxi/shared';
 import type { CurrentUser } from './session';
 import { sendMail } from './send';
+import { renderMessage } from './dynamic-vars';
 
 export interface ComposeResult {
   sent: number;
@@ -42,13 +43,16 @@ export async function sendComposed(
   };
 
   for (const recipient of input.recipients) {
-    const ctx = contextFor(input.from, recipient);
-    const subject = input.subject ? renderTemplate(input.subject, ctx) : undefined;
-    const text = input.text ? renderTemplate(input.text, ctx) : undefined;
-    const html = input.html ? renderTemplate(input.html, ctx) : undefined;
+    // Resolve a (possibly random) from-address first, then expose it in the
+    // context so the body can reference {{from}} consistently.
+    const from = renderMessage(input.from, contextFor(input.from, recipient));
+    const ctx = contextFor(from, recipient);
+    const subject = input.subject ? renderMessage(input.subject, ctx) : undefined;
+    const text = input.text ? renderMessage(input.text, ctx) : undefined;
+    const html = input.html ? renderMessage(input.html, ctx) : undefined;
 
     const r = await sendMail(user, {
-      from: input.from,
+      from,
       to: recipient.email,
       subject,
       text,

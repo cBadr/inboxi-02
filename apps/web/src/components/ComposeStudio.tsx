@@ -18,6 +18,11 @@ interface Attachment {
 const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
 const TOTAL_ATTACHMENT_CAP = 7 * 1024 * 1024;
 const SYSTEM_VARS = ['to', 'from', 'date', 'domain'];
+const DYNAMIC_VARS: Array<{ token: string; hint: string }> = [
+  { token: '{{random:6}}', hint: 'Random number with N digits (e.g. {{random:8}})' },
+  { token: '{{md5}}', hint: 'Random MD5 hash (32 hex). {{md5:12}} for a shorter one' },
+  { token: '{{randmail}}', hint: 'Random local part — use in From for a random sender' },
+];
 
 function fmtSize(b: number): string {
   if (b < 1024) return `${b} B`;
@@ -182,8 +187,7 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
     setRecipients((prev) => prev.filter((r) => r.email !== email));
 
   // ── variables ──
-  const insertVar = (name: string) => {
-    const token = `{{${name}}}`;
+  const insertRaw = (token: string) => {
     if (activeField.current === 'subject' && subjectRef.current) {
       const el = subjectRef.current;
       const start = el.selectionStart ?? subject.length;
@@ -200,6 +204,7 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
     }
     richHandle.current?.insert(token);
   };
+  const insertVar = (name: string) => insertRaw(`{{${name}}}`);
 
   // ── attachments ──
   const onPickFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -332,9 +337,23 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
             ))}
           </select>
         </div>
-        <p className="mt-1 text-xs text-gray-400">
-          Sending as <span className="font-mono text-gray-500">{fromAddress}</span>
-        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setLocal('{{randmail}}')}
+            className="rounded-lg border px-2.5 py-1 text-xs text-gray-600 transition hover:border-brand hover:text-brand"
+          >
+            🎲 Random sender
+          </button>
+          {local === '{{randmail}}' && (
+            <span className="text-xs text-amber-600">
+              A fresh random address is generated per message.
+            </span>
+          )}
+          <span className="ml-auto text-xs text-gray-400">
+            Sending as <span className="font-mono text-gray-500">{fromAddress}</span>
+          </span>
+        </div>
       </Section>
 
       {/* Recipients */}
@@ -417,6 +436,29 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
               className="rounded-full border bg-white px-2.5 py-1 font-mono text-xs text-brand transition hover:bg-brand/5"
             >{`{{${v}}}`}</button>
           ))}
+        </div>
+        <div className="mt-3">
+          <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-gray-400">
+            Dynamic — generated fresh per message
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {DYNAMIC_VARS.map((d) => (
+              <button
+                key={d.token}
+                type="button"
+                title={d.hint}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => insertRaw(d.token)}
+                className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 font-mono text-xs text-amber-700 transition hover:bg-amber-100"
+              >
+                {d.token}
+              </button>
+            ))}
+            <span className="ml-1 text-[11px] text-gray-400">
+              tip: <code className="font-mono">{`{{random:6}}`}</code> →{' '}
+              <code className="font-mono">{`{{random:N}}`}</code> for N digits
+            </span>
+          </div>
         </div>
       </Section>
 
