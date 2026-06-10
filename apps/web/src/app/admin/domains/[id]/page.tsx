@@ -57,6 +57,10 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
   const records = plannedRecordsFor(domain);
   const report = (domain.dnsReport as { items?: ReportItem[]; passed?: number; total?: number } | null) ?? null;
   const trust = domain.trustScores[0];
+  // Real (non catch-all) mailboxes — a domain is deletable only when it has none.
+  const realMailboxes = await prisma.mailbox.count({
+    where: { domainId: domain.id, type: { not: 'CATCH_ALL' } },
+  });
 
   return (
     <div className="space-y-6">
@@ -92,7 +96,7 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
         <FormButton action={scanReputation} id={domain.id} label="Run reputation scan" />
         <FormButton action={regenDkim} id={domain.id} label="Regenerate DKIM" />
         <FormButton action={toggleDomainActive} id={domain.id} label={domain.isActive ? 'Deactivate' : 'Activate'} />
-        {domain._count.mailboxes === 0 && (
+        {realMailboxes === 0 && (
           <FormButton action={deleteDomain} id={domain.id} label="Delete" danger />
         )}
       </div>

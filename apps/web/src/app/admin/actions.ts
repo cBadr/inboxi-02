@@ -9,6 +9,7 @@ import { setSetting } from '@/lib/settings';
 import { provisionDomainDns } from '@/lib/dns';
 import { verifyDomainDns, runReputationScan } from '@/lib/domain-health';
 import { encryptSecret } from '@/lib/crypto';
+import { syncHostList, ensureCatchAllMailbox } from '@/lib/haraka';
 
 export interface ActionResult {
   ok: boolean;
@@ -30,13 +31,16 @@ export async function createDomain(
   const existing = await prisma.domain.findUnique({ where: { name: parsed.data.name } });
   if (existing) return { ok: false, error: 'Domain already exists' };
 
-  await prisma.domain.create({
+  const domain = await prisma.domain.create({
     data: {
       name: parsed.data.name,
       availability: parsed.data.availability as DomainAvailability,
       dnsProvider: parsed.data.dnsProvider,
     },
   });
+  // Every domain gets a catch-all mailbox + must be added to the MTA host_list.
+  await ensureCatchAllMailbox(domain.id, domain.name);
+  await syncHostList();
   revalidatePath('/admin/domains');
   return { ok: true };
 }
@@ -55,7 +59,9 @@ export async function toggleDomainActive(formData: FormData): Promise<void> {
   const domain = await prisma.domain.findUnique({ where: { id } });
   if (!domain) return;
   await prisma.domain.update({ where: { id }, data: { isActive: !domain.isActive } });
+  await syncHostList();
   revalidatePath('/admin/domains');
+  revalidatePath(`/admin/domains/${id}`);
 }
 
 export async function updateTempMailSettings(
@@ -117,9 +123,18 @@ export async function regenDkim(formData: FormData): Promise<void> {
 export async function deleteDomain(formData: FormData): Promise<void> {
   await requireAdmin();
   const id = String(formData.get('id') ?? '');
-  const count = await prisma.mailbox.count({ where: { domainId: id } });
-  if (count > 0) return; // guard: don't delete domains with mailboxes
+  // Guard: refuse if the domain has real (non catch-all) mailboxes.
+  const count = await prisma.mailbox.count({
+    where: { domainId: id, type: { not: 'CATCH_ALL' } },
+  });
+  if (count > 0) return;
+  const domain = await prisma.domain.findUnique({ where: { id } });
+  // Detach the catch-all link, then delete the domain (cascades its mailboxes).
+  if (domain?.catchAllMailboxId) {
+    await prisma.domain.update({ where: { id }, data: { catchAllMailboxId: null } });
+  }
   await prisma.domain.delete({ where: { id } });
+  await syncHostList();
   revalidatePath('/admin/domains');
 }
 
@@ -135,6 +150,10 @@ export async function assignDomain(formData: FormData): Promise<void> {
     update: {},
     create: { domainId, userId: user.id },
   });
+  // Give the assigned user ownership of the domain's catch-all so they receive
+  // mail sent to any (including unprovisioned) address on the domain.
+  const domain = await prisma.domain.findUnique({ where: { id: domainId } });
+  if (domain) await ensureCatchAllMailbox(domain.id, domain.name, user.id);
   revalidatePath(`/admin/domains/${domainId}`);
 }
 
