@@ -1,4 +1,4 @@
-import { prisma, OutboundStatus, TransportType } from '@inboxi/db';
+import { prisma, OutboundStatus, TransportType, type DeliveryTransport } from '@inboxi/db';
 import {
   deliverWithFailover,
   screenOutbound,
@@ -6,6 +6,36 @@ import {
 } from '@inboxi/integrations/delivery';
 import type { SendMessageInput } from '@inboxi/shared';
 import type { CurrentUser } from './session';
+import { decryptSecret } from './crypto';
+
+// SMTP passwords are stored encrypted; fall back to the raw value if it wasn't
+// (e.g. a self-host transport with no auth).
+function decryptMaybe(value: string | null): string | undefined {
+  if (!value) return undefined;
+  try {
+    return decryptSecret(value);
+  } catch {
+    return value;
+  }
+}
+
+// Map a stored DeliveryTransport row to a runtime TransportConfig.
+export function transportToConfig(t: DeliveryTransport): TransportConfig {
+  return {
+    name: t.name,
+    kind: t.type === 'SELF_HOST' ? 'SELF_HOST' : 'SMTP_RELAY',
+    smtp:
+      t.smtpHost && t.smtpPort
+        ? {
+            host: t.smtpHost,
+            port: t.smtpPort,
+            secure: t.smtpSecure ?? undefined,
+            user: t.smtpUsername ?? undefined,
+            pass: decryptMaybe(t.smtpPassword),
+          }
+        : undefined,
+  };
+}
 
 export interface SendResult {
   ok: boolean;
@@ -51,20 +81,7 @@ export async function resolveTransports(domainId: string): Promise<TransportConf
     : transports;
 
   for (const t of ordered) {
-    chain.push({
-      name: t.name,
-      kind: t.type === 'SELF_HOST' ? 'SELF_HOST' : 'SMTP_RELAY',
-      smtp:
-        t.smtpHost && t.smtpPort
-          ? {
-              host: t.smtpHost,
-              port: t.smtpPort,
-              secure: t.smtpSecure ?? undefined,
-              user: t.smtpUsername ?? undefined,
-              pass: t.smtpPassword ?? undefined,
-            }
-          : undefined,
-    });
+    chain.push(transportToConfig(t));
   }
 
   if (chain.length === 0 && process.env.NODE_ENV !== 'production') {
