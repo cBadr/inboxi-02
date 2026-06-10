@@ -105,6 +105,17 @@ export async function recheckDns(formData: FormData): Promise<void> {
   revalidatePath('/admin/domains');
 }
 
+// One-click auto-fix: (re)provision all DNS records via Cloudflare, then verify.
+export async function autoFixDns(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const id = String(formData.get('id') ?? '');
+  await provisionDomainDns(id);
+  await verifyDomainDns(id);
+  await runReputationScan(id).catch(() => {});
+  revalidatePath(`/admin/domains/${id}`);
+  revalidatePath('/admin/domains');
+}
+
 export async function scanReputation(formData: FormData): Promise<void> {
   await requireAdmin();
   const id = String(formData.get('id') ?? '');
@@ -118,8 +129,15 @@ export async function regenDkim(formData: FormData): Promise<void> {
   const kp = generateDkimKeyPair();
   await prisma.domain.update({
     where: { id },
-    data: { dkimPublicKey: kp.publicKeyDns, dkimPrivateKey: encryptSecret(kp.privateKeyPem), dnsStatus: 'PENDING' },
+    data: {
+      dkimPublicKey: kp.publicKeyDns,
+      dkimPrivateKey: encryptSecret(kp.privateKeyPem),
+      dnsStatus: 'PENDING',
+    },
   });
+  // Push the new DKIM record to Cloudflare (and re-verify) automatically.
+  await provisionDomainDns(id).catch(() => {});
+  await verifyDomainDns(id).catch(() => {});
   revalidatePath(`/admin/domains/${id}`);
 }
 

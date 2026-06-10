@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  provisionDns,
+  autoFixDns,
   recheckDns,
   scanReputation,
   regenDkim,
@@ -37,8 +37,8 @@ export function DomainActions({ id, isActive }: { id: string; isActive: boolean 
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <button disabled={pending} onClick={() => run('Provisioning DNS', provisionDns)} className={`${btn} bg-brand text-white hover:bg-brand-dark`}>
-        Provision DNS
+      <button disabled={pending} onClick={() => run('Fixing DNS', autoFixDns)} className={`${btn} bg-brand text-white hover:bg-brand-dark`}>
+        Fix DNS automatically
       </button>
       <button disabled={pending} onClick={() => run('Re-checking DNS', recheckDns)} className={`${btn} border hover:bg-gray-50`}>
         Re-check DNS

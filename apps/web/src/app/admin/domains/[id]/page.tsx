@@ -5,6 +5,7 @@ import { requireAdmin } from '@/lib/session';
 import { plannedRecordsFor, getDeliverability } from '@/lib/domain-health';
 import { CopyButton } from '@/components/CopyButton';
 import { DomainActions } from '@/components/DomainActions';
+import { FixDnsButton } from '@/components/FixDnsButton';
 import {
   setDomainAvailability,
   deleteDomain,
@@ -33,6 +34,38 @@ function scoreColor(score: number): string {
   if (score >= 80) return 'text-green-600';
   if (score >= 50) return 'text-amber-600';
   return 'text-red-600';
+}
+
+function ringStroke(score: number): string {
+  if (score >= 80) return '#16a34a';
+  if (score >= 50) return '#d97706';
+  return '#dc2626';
+}
+
+function ScoreRing({ score }: { score: number }) {
+  const r = 26;
+  const c = 2 * Math.PI * r;
+  const offset = c - (score / 100) * c;
+  return (
+    <svg width="64" height="64" viewBox="0 0 64 64" className="shrink-0">
+      <circle cx="32" cy="32" r={r} fill="none" stroke="#e5e7eb" strokeWidth="6" />
+      <circle
+        cx="32"
+        cy="32"
+        r={r}
+        fill="none"
+        stroke={ringStroke(score)}
+        strokeWidth="6"
+        strokeDasharray={c}
+        strokeDashoffset={offset}
+        strokeLinecap="round"
+        transform="rotate(-90 32 32)"
+      />
+      <text x="32" y="37" textAnchor="middle" className="fill-gray-800 text-base font-bold">
+        {score}
+      </text>
+    </svg>
+  );
 }
 
 export default async function DomainDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -99,24 +132,43 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
         )}
       </div>
 
-      {/* Deliverability panel */}
-      <div className="rounded-lg border bg-white p-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">Deliverability</h2>
-          <span className={`text-2xl font-bold ${scoreColor(deliverability.score)}`}>
-            {deliverability.score}
-            <span className="text-sm font-normal text-gray-400">/100</span>
-          </span>
+      {/* Deliverability panel (prominent) */}
+      <div className="rounded-lg border-2 border-brand/20 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold">Deliverability</h2>
+            <p className="text-xs text-gray-500">
+              {deliverability.checks.filter((c) => c.ok).length}/{deliverability.checks.length}{' '}
+              checks passing — higher = better inbox placement.
+            </p>
+          </div>
+          <div className="flex items-center gap-4">
+            <ScoreRing score={deliverability.score} />
+            {deliverability.dnsFixable && (
+              <FixDnsButton id={domain.id} />
+            )}
+          </div>
         </div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
           {deliverability.checks.map((c) => (
-            <div key={c.label} className="flex items-center gap-2 text-sm">
-              <span className={c.ok ? 'text-green-600' : 'text-red-500'}>{c.ok ? '✓' : '✗'}</span>
-              <span className="text-gray-700">{c.label}</span>
-              {c.detail && <span className="truncate text-xs text-gray-400">({c.detail})</span>}
+            <div key={c.key} className="flex items-start gap-2 rounded border p-2 text-sm">
+              <span className={c.ok ? 'mt-0.5 text-green-600' : 'mt-0.5 text-red-500'}>
+                {c.ok ? '✓' : '✗'}
+              </span>
+              <div className="min-w-0">
+                <div className="font-medium text-gray-700">{c.label}</div>
+                {c.value && (
+                  <div className="truncate font-mono text-xs text-gray-400" title={c.value}>
+                    {c.value}
+                  </div>
+                )}
+                {!c.ok && c.hint && <div className="mt-0.5 text-xs text-amber-600">→ {c.hint}</div>}
+              </div>
             </div>
           ))}
         </div>
+
         {deliverability.recommendations.length > 0 && (
           <ul className="mt-3 space-y-1 border-t pt-3 text-xs text-gray-600">
             {deliverability.recommendations.map((r, i) => (
@@ -124,74 +176,110 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
             ))}
           </ul>
         )}
+        <div className="mt-3 flex flex-wrap gap-3 border-t pt-3 text-xs">
+          <a href="https://www.mail-tester.com" target="_blank" rel="noreferrer" className="text-brand hover:underline">
+            Test score on mail-tester.com ↗
+          </a>
+          <a href="https://check.spamhaus.org" target="_blank" rel="noreferrer" className="text-brand hover:underline">
+            Check Spamhaus ↗
+          </a>
+          <a
+            href={`https://mxtoolbox.com/SuperTool.aspx?action=mx%3a${domain.name}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-brand hover:underline"
+          >
+            MXToolbox diagnostics ↗
+          </a>
+        </div>
       </div>
 
-      {/* Settings + meta */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-lg border bg-white p-4">
-          <h2 className="mb-3 text-sm font-semibold">Settings</h2>
-          <dl className="space-y-2 text-sm">
-            <Row label="Availability">
-              <form action={setDomainAvailability} className="flex items-center gap-2">
-                <input type="hidden" name="id" value={domain.id} />
-                <select name="availability" defaultValue={domain.availability} className="rounded border px-2 py-1 text-xs">
-                  <option value="FREE">Free</option>
-                  <option value="ASSIGNED_USER">Assigned (user)</option>
-                  <option value="ASSIGNED_GROUP">Assigned (group)</option>
-                  <option value="DISABLED">Disabled</option>
-                </select>
-                <button className="text-xs text-brand hover:underline">Save</button>
-              </form>
-            </Row>
-            <Row label="DNS provider">{domain.dnsProvider}</Row>
-            <Row label="Cloudflare zone">{domain.cloudflareZoneId ?? '—'}</Row>
-            <Row label="DKIM selector">{domain.dkimSelector}</Row>
-            <Row label="Mailboxes">{domain._count.mailboxes}</Row>
-            <Row label="Created">{domain.createdAt.toLocaleDateString()}</Row>
-          </dl>
-        </div>
-
-        {/* Trust / reputation */}
-        <div className="rounded-lg border bg-white p-4">
-          <h2 className="mb-3 text-sm font-semibold">Reputation & Trust Score</h2>
-          {trust ? (
-            <>
-              <div className={`text-3xl font-bold ${scoreColor(trust.score)}`}>
-                {Math.round(trust.score)}
-                <span className="text-base font-normal text-gray-400">/100</span>
+      {/* Reputation & Trust (prominent) */}
+      <div className="rounded-lg border-2 border-amber-200 bg-white p-5 shadow-sm">
+        <h2 className="text-base font-bold">Reputation &amp; Trust Score</h2>
+        {trust ? (
+          <div className="mt-3 grid gap-4 md:grid-cols-3">
+            <div className="flex items-center gap-3">
+              <ScoreRing score={Math.round(trust.score)} />
+              <div className="text-xs text-gray-500">
+                Sender trust for IP {process.env.SERVER_IP}
+                <br />
+                scanned {new Date(trust.computedAt).toLocaleString()}
               </div>
-              {trust.factors && Object.keys(trust.factors as object).length > 0 && (
-                <ul className="mt-2 text-xs text-gray-600">
+            </div>
+            <div>
+              <div className="mb-1 text-xs font-semibold uppercase text-gray-400">Score factors</div>
+              {trust.factors && Object.keys(trust.factors as object).length > 0 ? (
+                <ul className="space-y-0.5 text-xs">
                   {Object.entries(trust.factors as Record<string, number>).map(([k, v]) => (
-                    <li key={k}>
-                      {k}: <span className="text-red-600">{v}</span>
+                    <li key={k} className="flex justify-between">
+                      <span className="text-gray-600">{k}</span>
+                      <span className="font-mono text-red-600">{v}</span>
                     </li>
                   ))}
                 </ul>
+              ) : (
+                <p className="text-xs text-green-600">No penalties — clean.</p>
               )}
-              <div className="mt-3 text-xs text-gray-500">
-                <div className="mb-1 font-medium">Recent blacklist checks:</div>
-                <ul className="space-y-0.5">
-                  {domain.reputationChecks.map((c) => (
-                    <li key={c.id}>
-                      {c.source}:{' '}
-                      <span className={c.listed ? 'text-red-600' : 'text-green-600'}>
-                        {c.listed ? 'LISTED' : 'clean'}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+            </div>
+            <div>
+              <div className="mb-1 text-xs font-semibold uppercase text-gray-400">
+                Blacklist checks
               </div>
-            </>
-          ) : (
-            <p className="text-sm text-gray-400">No scan yet. Click “Run reputation scan”.</p>
-          )}
-        </div>
+              <ul className="space-y-0.5 text-xs">
+                {domain.reputationChecks.map((c) => (
+                  <li key={c.id} className="flex justify-between gap-2">
+                    <span className="truncate font-mono text-gray-600">
+                      {c.source.replace('dnsbl:', '')}
+                    </span>
+                    <span className={c.listed ? 'font-semibold text-red-600' : 'text-green-600'}>
+                      {c.listed ? 'LISTED' : 'clean'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-gray-400">
+            No scan yet. Click “Reputation scan” in the action bar.
+          </p>
+        )}
       </div>
 
-      {/* DNS verification report */}
+      {/* Settings */}
       <div className="rounded-lg border bg-white p-4">
-        <h2 className="mb-3 text-sm font-semibold">DNS verification</h2>
+        <h2 className="mb-3 text-sm font-semibold">Settings</h2>
+        <dl className="grid gap-2 text-sm sm:grid-cols-2">
+          <Row label="Availability">
+            <form action={setDomainAvailability} className="flex items-center gap-2">
+              <input type="hidden" name="id" value={domain.id} />
+              <select name="availability" defaultValue={domain.availability} className="rounded border px-2 py-1 text-xs">
+                <option value="FREE">Free</option>
+                <option value="ASSIGNED_USER">Assigned (user)</option>
+                <option value="ASSIGNED_GROUP">Assigned (group)</option>
+                <option value="DISABLED">Disabled</option>
+              </select>
+              <button className="text-xs text-brand hover:underline">Save</button>
+            </form>
+          </Row>
+          <Row label="DNS provider">{domain.dnsProvider}</Row>
+          <Row label="Cloudflare zone">{domain.cloudflareZoneId ?? '—'}</Row>
+          <Row label="DKIM selector">{domain.dkimSelector}</Row>
+          <Row label="Mailboxes">{domain._count.mailboxes}</Row>
+          <Row label="Created">{domain.createdAt.toLocaleDateString()}</Row>
+        </dl>
+      </div>
+
+      {/* DNS verification report (collapsible — needed mainly during setup / troubleshooting) */}
+      <details className="rounded-lg border bg-white p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-gray-700">
+          DNS verification report{' '}
+          <span className="font-normal text-gray-400">
+            ({report?.passed ?? 0}/{report?.total ?? 4} records OK)
+          </span>
+        </summary>
+        <div className="mt-3">
         {report?.items ? (
           <table className="w-full text-sm">
             <thead className="text-left text-xs uppercase text-gray-400">
@@ -218,12 +306,16 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
         ) : (
           <p className="text-sm text-gray-400">No verification yet. Click “Re-check DNS”.</p>
         )}
-      </div>
+        </div>
+      </details>
 
-      {/* Required DNS records */}
-      <div className="rounded-lg border bg-white p-4">
-        <h2 className="mb-3 text-sm font-semibold">Required DNS records</h2>
-        <table className="w-full text-sm">
+      {/* Required DNS records (collapsible) */}
+      <details className="rounded-lg border bg-white p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-gray-700">
+          Required DNS records{' '}
+          <span className="font-normal text-gray-400">(for manual setup / reference)</span>
+        </summary>
+        <table className="mt-3 w-full text-sm">
           <thead className="text-left text-xs uppercase text-gray-400">
             <tr>
               <th className="py-1">Type</th>
@@ -248,7 +340,7 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
             ))}
           </tbody>
         </table>
-      </div>
+      </details>
 
       {/* Assignments */}
       <div className="rounded-lg border bg-white p-4">

@@ -1,4 +1,5 @@
 import { Resolver } from 'node:dns/promises';
+import net from 'node:net';
 import { prisma, DnsStatus } from '@inboxi/db';
 import { planDnsRecords, type DnsRecord } from '@inboxi/integrations/cloudflare';
 
@@ -113,7 +114,35 @@ async function safeTxt(res: Resolver, name: string): Promise<string[]> {
 
 // ── Reputation + Trust Score ─────────────────────────────────
 
-const DNSBLS = ['zen.spamhaus.org', 'bl.spamcop.net', 'b.barracudacentral.org'];
+const DNSBLS = [
+  'zen.spamhaus.org',
+  'bl.spamcop.net',
+  'b.barracudacentral.org',
+  'dnsbl.sorbs.net',
+  'cbl.abuseat.org',
+];
+
+// Connect to a mail host and read the SMTP greeting banner — confirms the MTA is
+// reachable on port 25 from the outside world's perspective.
+export async function checkSmtpBanner(
+  host: string,
+  port = 25,
+): Promise<{ ok: boolean; banner?: string }> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (ok: boolean, banner?: string) => {
+      if (done) return;
+      done = true;
+      socket.destroy();
+      resolve({ ok, banner });
+    };
+    const socket = net.createConnection({ host, port });
+    socket.setTimeout(5000);
+    socket.on('data', (d) => finish(true, d.toString().split(/\r?\n/)[0]));
+    socket.on('timeout', () => finish(false));
+    socket.on('error', () => finish(false));
+  });
+}
 
 export interface ReputationResult {
   ip: string;
@@ -203,77 +232,108 @@ export async function runReputationScan(domainId: string): Promise<ReputationRes
 // ── Deliverability summary (read-only, for the domain detail page) ──
 
 export interface DeliverabilityCheck {
+  key: string;
   label: string;
   ok: boolean;
-  detail?: string;
-  fixable?: boolean;
+  value?: string; // the published / observed value
+  fix?: 'dns' | 'manual'; // how it can be fixed
+  hint?: string; // manual-fix instruction
 }
 
 export interface DeliverabilityView {
   score: number;
   checks: DeliverabilityCheck[];
   recommendations: string[];
+  dnsFixable: boolean; // any failing check is auto-fixable via Provision DNS
 }
 
 interface DomainForDeliverability {
   name: string;
   dnsReport: unknown;
   dkimSelector: string;
+  dkimPublicKey?: string | null;
   reputationChecks?: Array<{ source: string; listed: boolean }>;
 }
 
-// Combine the stored DNS report, a live PTR lookup, and the latest blacklist
-// checks into a deliverability score + actionable recommendations.
+// Combine the stored DNS report, a live PTR + SMTP-banner check, and the latest
+// blacklist checks into a detailed deliverability score + recommendations.
 export async function getDeliverability(
   domain: DomainForDeliverability,
 ): Promise<DeliverabilityView> {
   const report = domain.dnsReport as { items?: DnsCheckItem[] } | null;
-  const ok = (type: string) => report?.items?.find((i) => i.type === type)?.ok ?? false;
-  const mx = ok('MX');
-  const spf = ok('SPF');
-  const dkim = ok('DKIM');
-  const dmarc = ok('DMARC');
+  const item = (type: string) => report?.items?.find((i) => i.type === type);
+  const okOf = (type: string) => item(type)?.ok ?? false;
+  const valOf = (type: string) => item(type)?.found?.[0] ?? '';
 
   const ip = process.env.SERVER_IP ?? '';
   const host = (process.env.MAIL_HOST ?? `mail.${domain.name}`).toLowerCase();
+
+  // Reverse DNS (PTR)
   let ptrOk = false;
-  let ptrValue = '';
+  let ptrValue = 'not set';
   if (ip) {
     try {
       const names = await resolver().reverse(ip);
       ptrValue = names.join(', ');
       ptrOk = names.some((h) => h.replace(/\.$/, '').toLowerCase() === host);
     } catch {
-      ptrValue = '';
+      ptrValue = 'not set';
     }
   }
+
+  // SMTP reachability (port 25 banner)
+  const smtp = await checkSmtpBanner(host, 25);
 
   const listed = (domain.reputationChecks ?? []).filter((c) => c.listed).map((c) => c.source);
   const notBlacklisted = listed.length === 0;
 
   const checks: DeliverabilityCheck[] = [
-    { label: 'MX record', ok: mx, fixable: true },
-    { label: 'SPF', ok: spf, fixable: true },
-    { label: 'DKIM', ok: dkim, fixable: true },
-    { label: 'DMARC', ok: dmarc, fixable: true },
-    { label: 'Reverse DNS (PTR)', ok: ptrOk, detail: ptrValue || 'not set' },
-    { label: 'Not on blacklists', ok: notBlacklisted, detail: listed.join(', ') || 'clean' },
+    { key: 'mx', label: 'MX record', ok: okOf('MX'), value: valOf('MX'), fix: 'dns' },
+    { key: 'spf', label: 'SPF', ok: okOf('SPF'), value: valOf('SPF'), fix: 'dns' },
+    {
+      key: 'dkim',
+      label: 'DKIM',
+      ok: okOf('DKIM'),
+      value: okOf('DKIM') ? `selector: ${domain.dkimSelector}` : '',
+      fix: 'dns',
+    },
+    { key: 'dmarc', label: 'DMARC', ok: okOf('DMARC'), value: valOf('DMARC'), fix: 'dns' },
+    {
+      key: 'ptr',
+      label: 'Reverse DNS (PTR)',
+      ok: ptrOk,
+      value: ptrValue,
+      fix: 'manual',
+      hint: `Rename your droplet / set PTR for ${ip || 'the server IP'} to ${host} (DigitalOcean → Droplet → Rename).`,
+    },
+    {
+      key: 'smtp',
+      label: 'SMTP reachable (:25)',
+      ok: smtp.ok,
+      value: smtp.banner ?? 'no response',
+    },
+    {
+      key: 'blacklist',
+      label: 'Not on blacklists',
+      ok: notBlacklisted,
+      value: notBlacklisted ? 'clean' : listed.join(', '),
+      fix: notBlacklisted ? undefined : 'manual',
+      hint: notBlacklisted ? undefined : 'Request delisting at check.spamhaus.org and the listed RBLs.',
+    },
   ];
   const score = Math.round((checks.filter((c) => c.ok).length / checks.length) * 100);
+  const dnsFixable = checks.some((c) => !c.ok && c.fix === 'dns');
 
   const recommendations: string[] = [];
-  if (!mx || !spf || !dkim || !dmarc)
-    recommendations.push('Click “Provision DNS” to auto-create the missing MX/SPF/DKIM/DMARC records.');
-  if (!ptrOk)
-    recommendations.push(
-      `Set reverse DNS (PTR) for ${ip || 'your server IP'} to ${host} in your VPS/DigitalOcean panel (rename the droplet to ${host}).`,
-    );
-  if (!notBlacklisted)
-    recommendations.push(`Request delisting from: ${listed.join(', ')} — see spamhaus.org/check.`);
+  if (dnsFixable)
+    recommendations.push('Use “Fix DNS automatically” to publish the missing MX/SPF/DKIM/DMARC records via Cloudflare.');
+  for (const c of checks) {
+    if (!c.ok && c.fix === 'manual' && c.hint) recommendations.push(c.hint);
+  }
   if (recommendations.length === 0)
-    recommendations.push('Excellent — full authentication and clean reputation. Inbox-ready.');
+    recommendations.push('Excellent — full authentication, reachable MTA, clean reputation. Inbox-ready.');
 
-  return { score, checks, recommendations };
+  return { score, checks, recommendations, dnsFixable };
 }
 
 // Planned records for display/copy in the admin UI.
