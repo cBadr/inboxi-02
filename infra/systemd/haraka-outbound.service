@@ -4,13 +4,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=inboxi
 WorkingDirectory=/opt/inboxi/apps/mta-outbound
-# Run the Haraka bin shim directly (it is a shell wrapper, not a JS file).
-ExecStart=/opt/inboxi/apps/mta-outbound/node_modules/.bin/haraka -c /opt/inboxi/apps/mta-outbound
+ExecStart=/bin/bash -c 'set -a; . /opt/inboxi/.env; set +a; exec /opt/inboxi/apps/mta-outbound/node_modules/.bin/haraka -c /opt/inboxi/apps/mta-outbound'
 Restart=always
 RestartSec=5
-EnvironmentFile=/opt/inboxi/.env
 
 [Install]
 WantedBy=multi-user.target

@@ -23,6 +23,9 @@ pnpm --filter @inboxi/db generate
 echo "▶ Applying database migrations…"
 pnpm --filter @inboxi/db migrate:deploy
 
+echo "▶ Scaffolding Haraka config…"
+bash infra/setup-haraka.sh
+
 echo "▶ Building…"
 pnpm build
 

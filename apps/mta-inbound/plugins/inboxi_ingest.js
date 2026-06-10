@@ -1,7 +1,7 @@
 'use strict';
 
-// Haraka plugin: on queue, parse the received message and forward it to the
-// Inboxi web ingest endpoint. Recipients are already accepted by
+// Haraka plugin: on queue, read the received message, parse it, and forward it
+// to the Inboxi web ingest endpoint. Recipients are already accepted by
 // rcpt_to.in_host_list (catch-all for our active domains).
 
 const { simpleParser } = require('mailparser');
@@ -23,11 +23,10 @@ exports.hook_queue = function (next, connection) {
   const txn = connection.transaction;
   if (!txn) return next();
 
-  const raw = txn.message_stream;
-  const chunks = [];
-  raw.on('data', (chunk) => chunks.push(chunk));
-  raw.on('end', async () => {
-    const buf = Buffer.concat(chunks);
+  // Haraka's message_stream must be consumed via get_data() (it pipes
+  // internally); attaching raw 'data'/'end' listeners does not flow and the
+  // hook would hang. get_data() yields the full raw MIME as a Buffer.
+  txn.message_stream.get_data(async (buf) => {
     let parsed;
     try {
       parsed = await simpleParser(buf);
@@ -36,7 +35,6 @@ exports.hook_queue = function (next, connection) {
       return next(DENYSOFT, 'temporary parse failure');
     }
 
-    // One delivery per envelope recipient.
     const recipients = txn.rcpt_to.map((r) => r.address());
     try {
       for (const rcpt of recipients) {
@@ -56,9 +54,5 @@ exports.hook_queue = function (next, connection) {
       connection.logerror(plugin, `forward error: ${err.message}`);
       return next(DENYSOFT, 'temporary ingest failure');
     }
-  });
-  raw.on('error', (err) => {
-    connection.logerror(plugin, `stream error: ${err.message}`);
-    next(DENYSOFT, 'stream error');
   });
 };

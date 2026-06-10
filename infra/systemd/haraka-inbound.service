@@ -4,16 +4,13 @@ After=network.target postgresql.service redis-server.service
 
 [Service]
 Type=simple
-User=inboxi
 WorkingDirectory=/opt/inboxi/apps/mta-inbound
-# Haraka must bind port 25; grant the capability instead of running as root.
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-# Run the Haraka bin shim directly — it is a shell wrapper, NOT a JS file, so it
-# must not be passed to `node`.
-ExecStart=/opt/inboxi/apps/mta-inbound/node_modules/.bin/haraka -c /opt/inboxi/apps/mta-inbound
+# Source the repo-root .env (bash strips quotes correctly — systemd
+# EnvironmentFile does not) then exec Haraka. Runs as root so it can bind
+# port 25 and read .env without extra capability/permission setup.
+ExecStart=/bin/bash -c 'set -a; . /opt/inboxi/.env; set +a; exec /opt/inboxi/apps/mta-inbound/node_modules/.bin/haraka -c /opt/inboxi/apps/mta-inbound'
 Restart=always
 RestartSec=5
-EnvironmentFile=/opt/inboxi/.env
 
 [Install]
 WantedBy=multi-user.target
