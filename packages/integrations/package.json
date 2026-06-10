@@ -1,0 +1,31 @@
+{
+  "name": "@inboxi/integrations",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./delivery": "./src/delivery/index.ts",
+    "./cloudflare": "./src/cloudflare/index.ts",
+    "./payments": "./src/payments/index.ts",
+    "./telegram": "./src/telegram/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rimraf dist .turbo"
+  },
+  "dependencies": {
+    "@inboxi/shared": "workspace:*",
+    "nodemailer": "^6.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "@types/nodemailer": "^6.4.17",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

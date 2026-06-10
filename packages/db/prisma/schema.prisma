@@ -1,0 +1,770 @@
+// Inboxi — Prisma schema
+// PostgreSQL. Covers: anonymous sessions, RBAC, domains/DNS, mailboxes,
+// inbound/outbound mail, delivery transports, plans/subscriptions/usage,
+// crypto payments, integrations, notification templates, ads, SEO, CMS,
+// analytics, reputation/trust, audit logs, and a global settings store.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────
+
+enum DomainAvailability {
+  FREE // available to all users
+  ASSIGNED_USER // reserved for a single user
+  ASSIGNED_GROUP // reserved for a group
+  DISABLED
+}
+
+enum DnsProvider {
+  CLOUDFLARE_PLATFORM // scenario A: zone in platform's CF account
+  CLOUDFLARE_DELEGATED // scenario B: customer delegates NS to CF
+  EXTERNAL_MANUAL // scenario C: customer keeps DNS, manual records + polling
+}
+
+enum DnsStatus {
+  PENDING
+  VERIFYING
+  VERIFIED
+  FAILED
+}
+
+enum MailboxType {
+  ACTIVE // an explicitly provisioned address
+  CATCH_ALL // the domain's primary catch-all mailbox
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum OutboundStatus {
+  QUEUED
+  SENDING
+  SENT
+  DEFERRED
+  BOUNCED
+  COMPLAINED
+  FAILED
+  BLOCKED
+}
+
+enum TransportType {
+  SELF_HOST // Haraka direct via port 25
+  SMTP_RELAY // external SMTP
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+  TRIALING
+}
+
+enum PaymentProviderType {
+  COINPAYMENTS
+  BINANCE_PAY
+}
+
+enum PaymentStatus {
+  PENDING
+  CONFIRMING
+  COMPLETED
+  FAILED
+  EXPIRED
+  REFUNDED
+}
+
+enum IntegrationKind {
+  GOOGLE_SEARCH_CONSOLE
+  GOOGLE_ANALYTICS
+  GOOGLE_TAG_MANAGER
+  GOOGLE_BUSINESS_PROFILE
+  GOOGLE_ADS
+  TELEGRAM
+}
+
+enum NotificationChannel {
+  TELEGRAM
+  EMAIL
+  WEBHOOK
+}
+
+enum AnonGateStatus {
+  OPEN // still under the free message threshold
+  GATED // threshold reached, registration required
+  CONVERTED // linked to a registered user
+  EXPIRED // destruction timer elapsed
+}
+
+// ─────────────────────────────────────────────────────────────
+// Anonymous sessions (instant temp-mail before signup)
+// ─────────────────────────────────────────────────────────────
+
+model AnonymousSession {
+  id           String         @id @default(cuid())
+  token        String         @unique // opaque browser token (cookie)
+  tempAddress  String // generated address, e.g. ab12cd@inboxi.online
+  domainId     String
+  domain       Domain         @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  messageCount Int            @default(0)
+  gateStatus   AnonGateStatus @default(OPEN)
+  expiresAt    DateTime // destruction timer
+  ipAddress    String?
+  userAgent    String?
+  userId       String? // set when converted to a registered account
+  user         User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  messages Message[]
+
+  @@index([domainId])
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([tempAddress])
+}
+
+// ─────────────────────────────────────────────────────────────
+// RBAC: users, roles, permissions
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  passwordHash  String?
+  name          String?
+  avatarUrl     String?
+  isActive      Boolean   @default(true)
+  isBanned      Boolean   @default(false)
+  bannedReason  String?
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  roleId String?
+  role   Role?   @relation(fields: [roleId], references: [id], onDelete: SetNull)
+
+  referredById String?
+  referredBy   User?   @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals    User[]  @relation("UserReferrals")
+
+  mailboxes         Mailbox[]
+  domainAssignments DomainAssignment[]
+  groupMembers      GroupMember[]
+  subscriptions     Subscription[]
+  usageCounters     UsageCounter[]
+  payments          Payment[]
+  integrations      Integration[]
+  apiKeys           ApiKey[]
+  webhooks          Webhook[]
+  anonymousSessions AnonymousSession[]
+  outboundMessages  OutboundMessage[]
+  referralRecords   Referral[]         @relation("ReferralReferrer")
+  referredRecords   Referral[]         @relation("ReferralReferred")
+  auditLogs         AuditLog[]
+
+  @@index([roleId])
+  @@index([referredById])
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  name        String           @unique // e.g. admin, user, support
+  description String?
+  isSystem    Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  users       User[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id          String           @id @default(cuid())
+  key         String           @unique // e.g. domain.create, user.ban
+  description String?
+  roles       RolePermission[]
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Groups (for assigning domains to a set of users)
+// ─────────────────────────────────────────────────────────────
+
+model Group {
+  id          String             @id @default(cuid())
+  name        String             @unique
+  description String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  members     GroupMember[]
+  assignments DomainAssignment[]
+}
+
+model GroupMember {
+  groupId String
+  userId  String
+  group   Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addedAt DateTime @default(now())
+
+  @@id([groupId, userId])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Domains + DNS automation
+// ─────────────────────────────────────────────────────────────
+
+model Domain {
+  id           String             @id @default(cuid())
+  name         String             @unique // e.g. inboxi.online
+  availability DomainAvailability @default(FREE)
+  isActive     Boolean            @default(true)
+
+  // DNS / Cloudflare automation
+  dnsProvider       DnsProvider @default(CLOUDFLARE_PLATFORM)
+  cloudflareZoneId  String?
+  dnsStatus         DnsStatus   @default(PENDING)
+  dnsLastCheckedAt  DateTime?
+  dnsReport         Json? // last DNS verification report (per-record check items)
+  verificationToken String?
+
+  // DKIM (one key pair per domain)
+  dkimSelector   String  @default("inboxi")
+  dkimPublicKey  String?
+  dkimPrivateKey String? // encrypted at rest
+
+  // Catch-all primary mailbox for this domain
+  catchAllMailboxId String?  @unique
+  catchAllMailbox   Mailbox? @relation("DomainCatchAll", fields: [catchAllMailboxId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mailboxes         Mailbox[]             @relation("DomainMailboxes")
+  assignments       DomainAssignment[]
+  messages          Message[]
+  anonymousSessions AnonymousSession[]
+  deliveryConfig    DomainDeliveryConfig?
+  reputationChecks  ReputationCheck[]
+  trustScores       TrustScore[]
+
+  @@index([availability])
+  @@index([dnsStatus])
+}
+
+model DomainAssignment {
+  id        String   @id @default(cuid())
+  domainId  String
+  domain    Domain   @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groupId   String?
+  group     Group?   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([domainId, userId])
+  @@unique([domainId, groupId])
+  @@index([userId])
+  @@index([groupId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Mailboxes + messages
+// ─────────────────────────────────────────────────────────────
+
+model Mailbox {
+  id            String      @id @default(cuid())
+  address       String // local part + domain, full address
+  localPart     String
+  domainId      String
+  domain        Domain      @relation("DomainMailboxes", fields: [domainId], references: [id], onDelete: Cascade)
+  userId        String?
+  user          User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type          MailboxType @default(ACTIVE)
+  isProvisioned Boolean     @default(true) // false = address only seen via catch-all
+  displayName   String?
+  isActive      Boolean     @default(true)
+  forwardTo     String? // optional: forward incoming mail to this real address
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  messages          Message[]
+  outboundMessages  OutboundMessage[]
+  catchAllForDomain Domain?           @relation("DomainCatchAll")
+
+  @@unique([address])
+  @@index([domainId])
+  @@index([userId])
+  @@index([type])
+}
+
+model Message {
+  id        String           @id @default(cuid())
+  direction MessageDirection @default(INBOUND)
+
+  domainId  String
+  domain    Domain   @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  mailboxId String?
+  mailbox   Mailbox? @relation(fields: [mailboxId], references: [id], onDelete: SetNull)
+
+  // Anonymous session that owns this message (pre-signup)
+  anonymousSessionId String?
+  anonymousSession   AnonymousSession? @relation(fields: [anonymousSessionId], references: [id], onDelete: SetNull)
+
+  // Envelope + parsed content
+  fromAddress String
+  toAddress   String
+  subject     String?
+  snippet     String? // short preview
+  textBody    String?
+  htmlBody    String?
+  rawRef      String? // object storage key for raw MIME
+  sizeBytes   Int     @default(0)
+
+  // Anti-spam / state
+  spamScore  Float?
+  isSpam     Boolean  @default(false)
+  isRead     Boolean  @default(false)
+  isGated    Boolean  @default(false) // stored but hidden behind the registration gate
+  receivedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  attachments MessageAttachment[]
+
+  @@index([mailboxId])
+  @@index([domainId])
+  @@index([anonymousSessionId])
+  @@index([toAddress])
+  @@index([receivedAt])
+}
+
+model MessageAttachment {
+  id          String  @id @default(cuid())
+  messageId   String
+  message     Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  filename    String
+  contentType String?
+  sizeBytes   Int     @default(0)
+  storageKey  String // object storage key
+  checksum    String?
+  isInline    Boolean @default(false)
+
+  @@index([messageId])
+}
+
+model OutboundMessage {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  mailboxId String?
+  mailbox   Mailbox? @relation(fields: [mailboxId], references: [id], onDelete: SetNull)
+
+  fromAddress String
+  toAddress   String
+  subject     String?
+  status      OutboundStatus @default(QUEUED)
+
+  transportType     TransportType?
+  transportId       String?
+  providerMessageId String?
+  dkimSigned        Boolean        @default(false)
+  attempts          Int            @default(0)
+  lastError         String?
+  spamScore         Float?
+
+  queuedAt  DateTime  @default(now())
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([toAddress])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Pluggable delivery transports
+// ─────────────────────────────────────────────────────────────
+
+model DeliveryTransport {
+  id        String        @id @default(cuid())
+  name      String        @unique
+  type      TransportType
+  isActive  Boolean       @default(true)
+  isDefault Boolean       @default(false)
+  priority  Int           @default(100) // lower = tried first in failover chain
+
+  // SMTP relay config (encrypted secrets)
+  smtpHost     String?
+  smtpPort     Int?
+  smtpSecure   Boolean? @default(true)
+  smtpUsername String?
+  smtpPassword String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  domainConfigs DomainDeliveryConfig[]
+}
+
+model DomainDeliveryConfig {
+  id            String             @id @default(cuid())
+  domainId      String             @unique
+  domain        Domain             @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  transportId   String?
+  transport     DeliveryTransport? @relation(fields: [transportId], references: [id], onDelete: SetNull)
+  failoverChain Json? // ordered list of transport ids
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([transportId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Plans, subscriptions, usage
+// ─────────────────────────────────────────────────────────────
+
+model Plan {
+  id                String  @id @default(cuid())
+  slug              String  @unique
+  name              String
+  description       String?
+  isActive          Boolean @default(true)
+  isFree            Boolean @default(false)
+  priceUsd          Decimal @db.Decimal(10, 2)
+  billingPeriodDays Int     @default(30)
+
+  // Limits
+  maxMailboxes      Int @default(1)
+  maxDomains        Int @default(0)
+  dailySendQuota    Int @default(0)
+  dailyReceiveQuota Int @default(100)
+  retentionDays     Int @default(1)
+
+  features  Json? // flexible feature flags
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id               String             @id @default(cuid())
+  userId           String
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planId           String
+  plan             Plan               @relation(fields: [planId], references: [id], onDelete: Restrict)
+  status           SubscriptionStatus @default(ACTIVE)
+  startedAt        DateTime           @default(now())
+  currentPeriodEnd DateTime?
+  canceledAt       DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  payments Payment[]
+
+  @@index([userId])
+  @@index([planId])
+  @@index([status])
+}
+
+model UsageCounter {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  metric    String // e.g. send.daily, receive.daily
+  windowKey String // e.g. 2026-06-10
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, metric, windowKey])
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Crypto payments
+// ─────────────────────────────────────────────────────────────
+
+model Payment {
+  id             String              @id @default(cuid())
+  userId         String
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptionId String?
+  subscription   Subscription?       @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  provider       PaymentProviderType
+  status         PaymentStatus       @default(PENDING)
+  amountUsd      Decimal             @db.Decimal(10, 2)
+  cryptoCurrency String?
+  cryptoAmount   String?
+  providerRef    String? // provider transaction/order id
+  confirmations  Int                 @default(0)
+  rawPayload     Json?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([providerRef])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Integrations + notifications
+// ─────────────────────────────────────────────────────────────
+
+model Integration {
+  id           String          @id @default(cuid())
+  userId       String?
+  user         User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind         IntegrationKind
+  isActive     Boolean         @default(true)
+  // OAuth tokens / config (encrypted)
+  accessToken  String?
+  refreshToken String?
+  expiresAt    DateTime?
+  config       Json? // arbitrary per-integration settings (telegram chat id, GTM id, etc.)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([userId, kind])
+  @@index([kind])
+}
+
+model NotificationTemplate {
+  id        String              @id @default(cuid())
+  key       String              @unique // e.g. mail.received, quota.exceeded
+  channel   NotificationChannel
+  name      String
+  subject   String?
+  body      String // template with {{variables}}
+  isActive  Boolean             @default(true)
+  variables Json? // documented available variables
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+}
+
+// ─────────────────────────────────────────────────────────────
+// Ads module
+// ─────────────────────────────────────────────────────────────
+
+model AdZone {
+  id        String   @id @default(cuid())
+  key       String   @unique // placement key used by <AdSlot zone="...">
+  name      String
+  width     Int?
+  height    Int?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ads       Ad[]
+}
+
+model Ad {
+  id          String    @id @default(cuid())
+  zoneId      String
+  zone        AdZone    @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  name        String
+  htmlContent String?
+  imageUrl    String?
+  targetUrl   String?
+  weight      Int       @default(1)
+  isActive    Boolean   @default(true)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  events      AdEvent[]
+
+  @@index([zoneId])
+}
+
+model AdEvent {
+  id        String   @id @default(cuid())
+  adId      String
+  ad        Ad       @relation(fields: [adId], references: [id], onDelete: Cascade)
+  type      String // impression | click
+  ipHash    String?
+  createdAt DateTime @default(now())
+
+  @@index([adId])
+  @@index([type])
+}
+
+// ─────────────────────────────────────────────────────────────
+// SEO + CMS
+// ─────────────────────────────────────────────────────────────
+
+model SeoSetting {
+  id             String   @id @default(cuid())
+  scope          String   @unique // "global" or a page path
+  title          String?
+  description    String?
+  keywords       String?
+  canonical      String?
+  ogImage        String?
+  iconUrl        String?
+  robots         String?
+  structuredData Json?
+  extra          Json?
+  updatedAt      DateTime @updatedAt
+}
+
+model CmsPage {
+  id          String     @id @default(cuid())
+  slug        String     @unique
+  title       String
+  isPublished Boolean    @default(false)
+  content     Json? // page-builder block tree (Puck data)
+  seoId       String?
+  publishedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  blocks      CmsBlock[]
+}
+
+model CmsBlock {
+  id        String  @id @default(cuid())
+  pageId    String
+  page      CmsPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  type      String
+  props     Json?
+  sortOrder Int     @default(0)
+
+  @@index([pageId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Analytics, reputation, audit, settings
+// ─────────────────────────────────────────────────────────────
+
+model AnalyticsEvent {
+  id         String   @id @default(cuid())
+  type       String
+  userId     String?
+  sessionId  String?
+  path       String?
+  referrer   String?
+  ipHash     String?
+  userAgent  String?
+  properties Json?
+  createdAt  DateTime @default(now())
+
+  @@index([type])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model ReputationCheck {
+  id        String   @id @default(cuid())
+  domainId  String?
+  domain    Domain?  @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  ipAddress String?
+  source    String // e.g. dnsbl:spamhaus, postmaster:google
+  listed    Boolean  @default(false)
+  detail    Json?
+  checkedAt DateTime @default(now())
+
+  @@index([domainId])
+  @@index([source])
+}
+
+model TrustScore {
+  id         String   @id @default(cuid())
+  domainId   String?
+  domain     Domain?  @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  ipAddress  String?
+  score      Float // 0..100 composite
+  factors    Json?
+  computedAt DateTime @default(now())
+
+  @@index([domainId])
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  keyPrefix  String // visible prefix
+  keyHash    String    @unique // hashed secret
+  scopes     Json?
+  isActive   Boolean   @default(true)
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Webhook {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url       String
+  events    Json // subscribed event types
+  secret    String? // for signing payloads
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Referral {
+  id          String   @id @default(cuid())
+  referrerId  String
+  referrer    User     @relation("ReferralReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredId  String?
+  referred    User?    @relation("ReferralReferred", fields: [referredId], references: [id], onDelete: SetNull)
+  code        String   @unique
+  rewardState String   @default("pending")
+  createdAt   DateTime @default(now())
+
+  @@index([referrerId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action    String // e.g. domain.create, user.ban
+  entity    String? // entity type
+  entityId  String?
+  metadata  Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// Global key/value settings store — the admin "control everything" point.
+model Setting {
+  key       String   @id
+  value     Json
+  category  String?  @default("general")
+  updatedAt DateTime @updatedAt
+}

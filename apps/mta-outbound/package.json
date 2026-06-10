@@ -1,0 +1,16 @@
+{
+  "name": "@inboxi/mta-outbound",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Inboxi outbound MTA (Haraka) — self-host delivery driver (local submission on 587, relays to the internet)",
+  "scripts": {
+    "start": "haraka -c .",
+    "clean": "rimraf .turbo"
+  },
+  "optionalDependencies": {
+    "Haraka": "^3.0.5"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1"
+  }
+}

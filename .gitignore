@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# Turbo
+.turbo/
+
+# Env (ignore real env files, keep example templates)
+.env
+.env.*
+!.env.example
+!*.env.example
+!.env.production.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Prisma
+packages/db/prisma/*.db
+packages/db/prisma/migrations/dev/
+
+# Mail / runtime data
+data/
+attachments/
+mta-queue/
+
+# Test
+coverage/
+playwright-report/
+test-results/

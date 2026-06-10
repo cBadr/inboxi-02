@@ -1,0 +1,22 @@
+{
+  "name": "@inboxi/mta-inbound",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Inboxi inbound MTA (Haraka) — catch-all receive + forward to web ingest",
+  "scripts": {
+    "start": "haraka -c .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit --allowJs --checkJs false lib/*.js",
+    "clean": "rimraf .turbo"
+  },
+  "dependencies": {
+    "mailparser": "^3.7.2"
+  },
+  "optionalDependencies": {
+    "Haraka": "^3.0.5"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1",
+    "vitest": "^3.0.5"
+  }
+}

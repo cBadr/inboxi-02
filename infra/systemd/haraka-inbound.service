@@ -1,0 +1,17 @@
+[Unit]
+Description=Inboxi Haraka inbound MTA (catch-all SMTP on port 25)
+After=network.target postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=inboxi
+WorkingDirectory=/opt/inboxi/apps/mta-inbound
+# Haraka must bind port 25; grant the capability instead of running as root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+ExecStart=/usr/bin/node node_modules/.bin/haraka -c .
+Restart=always
+RestartSec=5
+EnvironmentFile=/opt/inboxi/.env
+
+[Install]
+WantedBy=multi-user.target

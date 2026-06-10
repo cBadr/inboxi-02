@@ -1,0 +1,4 @@
+# Inboxi inbound MTA plugin chain.
+# Accept recipients for our active domains (catch-all), then forward to ingest.
+rcpt_to.in_host_list
+inboxi_ingest

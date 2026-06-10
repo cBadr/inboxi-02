@@ -1,0 +1,15 @@
+[Unit]
+Description=Inboxi Haraka outbound MTA (self-host delivery driver)
+After=network.target
+
+[Service]
+Type=simple
+User=inboxi
+WorkingDirectory=/opt/inboxi/apps/mta-outbound
+ExecStart=/usr/bin/node node_modules/.bin/haraka -c .
+Restart=always
+RestartSec=5
+EnvironmentFile=/opt/inboxi/.env
+
+[Install]
+WantedBy=multi-user.target
