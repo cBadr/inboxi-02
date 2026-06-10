@@ -2,12 +2,6 @@
 
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  setMessagesArchived,
-  setMessagesRead,
-  setMessagesStarred,
-  deleteMessages,
-} from '@/app/admin/inbox-actions';
 
 export interface InboxMessage {
   id: string;
@@ -24,14 +18,26 @@ export interface InboxMessage {
   otpCode: string | null;
 }
 
+// Server actions are bound to a scope (a domain for admins, a mailbox for users).
+export interface InboxActions {
+  setArchived: (scopeId: string, ids: string[], archived: boolean) => Promise<void>;
+  setRead: (scopeId: string, ids: string[], read: boolean) => Promise<void>;
+  setStarred: (scopeId: string, ids: string[], starred: boolean) => Promise<void>;
+  remove: (scopeId: string, ids: string[]) => Promise<void>;
+}
+
 type Tab = 'inbox' | 'unread' | 'starred' | 'archived';
 
-export function AdminInboxList({
-  domainId,
+export function InboxList({
+  scopeId,
+  basePath,
   messages,
+  actions,
 }: {
-  domainId: string;
+  scopeId: string;
+  basePath: string; // message links are `${basePath}/${id}`
   messages: InboxMessage[];
+  actions: InboxActions;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -111,42 +117,25 @@ export function AdminInboxList({
             </button>
           ))}
         </div>
-        <div className="relative ml-auto">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search sender, subject…"
-            className="w-56 rounded-lg border px-3 py-1.5 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
-          />
-        </div>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search sender, subject…"
+          className="ml-auto w-56 rounded-lg border px-3 py-1.5 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+        />
       </div>
 
       {/* bulk action bar */}
       {selected.size > 0 && (
         <div className="flex flex-wrap items-center gap-2 border-b bg-indigo-50/40 px-4 py-2 text-sm">
           <span className="font-medium text-gray-700">{selected.size} selected</span>
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => run(() => setMessagesRead(domainId, ids(), true))}
-            className={barBtn}
-          >
+          <button type="button" disabled={pending} onClick={() => run(() => actions.setRead(scopeId, ids(), true))} className={barBtn}>
             Mark read
           </button>
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => run(() => setMessagesRead(domainId, ids(), false))}
-            className={barBtn}
-          >
+          <button type="button" disabled={pending} onClick={() => run(() => actions.setRead(scopeId, ids(), false))} className={barBtn}>
             Mark unread
           </button>
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => run(() => setMessagesArchived(domainId, ids(), !selectedAllArchived))}
-            className={barBtn}
-          >
+          <button type="button" disabled={pending} onClick={() => run(() => actions.setArchived(scopeId, ids(), !selectedAllArchived))} className={barBtn}>
             {selectedAllArchived ? 'Unarchive' : 'Archive'}
           </button>
           <button
@@ -154,17 +143,13 @@ export function AdminInboxList({
             disabled={pending}
             onClick={() => {
               if (confirm(`Delete ${selected.size} message(s)? This cannot be undone.`))
-                run(() => deleteMessages(domainId, ids()));
+                run(() => actions.remove(scopeId, ids()));
             }}
             className="rounded-md border border-red-200 px-2.5 py-1 text-red-600 hover:bg-red-50 disabled:opacity-50"
           >
             Delete
           </button>
-          <button
-            type="button"
-            onClick={() => setSelected(new Set())}
-            className="ml-auto text-xs text-gray-500 hover:text-gray-700"
-          >
+          <button type="button" onClick={() => setSelected(new Set())} className="ml-auto text-xs text-gray-500 hover:text-gray-700">
             Clear
           </button>
         </div>
@@ -173,12 +158,7 @@ export function AdminInboxList({
       {/* select-all row */}
       {visible.length > 0 && (
         <div className="flex items-center gap-3 border-b bg-gray-50/60 px-4 py-2 text-xs text-gray-500">
-          <input
-            type="checkbox"
-            checked={allVisibleSelected}
-            onChange={toggleAll}
-            className="h-3.5 w-3.5"
-          />
+          <input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} className="h-3.5 w-3.5" />
           <span>Select all ({visible.length})</span>
         </div>
       )}
@@ -195,23 +175,16 @@ export function AdminInboxList({
               key={m.id}
               className={`group flex items-center gap-3 px-4 py-3 transition hover:bg-gray-50 ${m.isRead ? '' : 'bg-indigo-50/30'} ${selected.has(m.id) ? 'bg-indigo-50/60' : ''}`}
             >
-              <input
-                type="checkbox"
-                checked={selected.has(m.id)}
-                onChange={() => toggle(m.id)}
-                className="h-3.5 w-3.5 shrink-0"
-              />
-              {/* star */}
+              <input type="checkbox" checked={selected.has(m.id)} onChange={() => toggle(m.id)} className="h-3.5 w-3.5 shrink-0" />
               <button
                 type="button"
                 title={m.isStarred ? 'Unstar' : 'Star'}
                 disabled={pending}
-                onClick={() => run(() => setMessagesStarred(domainId, [m.id], !m.isStarred))}
+                onClick={() => run(() => actions.setStarred(scopeId, [m.id], !m.isStarred))}
                 className={`shrink-0 ${m.isStarred ? 'text-amber-400' : 'text-gray-300 hover:text-amber-400'}`}
               >
                 {m.isStarred ? '★' : '☆'}
               </button>
-              {/* avatar */}
               <span
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
                 style={{ backgroundColor: avatarColor(m.fromAddress) }}
@@ -219,13 +192,7 @@ export function AdminInboxList({
                 {initials(m.fromAddress)}
               </span>
 
-              {/* open in a new tab */}
-              <a
-                href={`/admin/inboxes/${domainId}/${m.id}`}
-                target="_blank"
-                rel="noreferrer"
-                className="min-w-0 flex-1"
-              >
+              <a href={`${basePath}/${m.id}`} target="_blank" rel="noreferrer" className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
                   <span className={`truncate text-sm ${m.isRead ? 'text-gray-700' : 'font-semibold text-gray-900'}`}>
                     {senderName(m.fromAddress)}
@@ -240,9 +207,7 @@ export function AdminInboxList({
                     <span className="rounded bg-purple-100 px-1.5 py-0.5 text-purple-700">catch-all</span>
                   )}
                   {m.attachments > 0 && (
-                    <span className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-500">
-                      📎 {m.attachments}
-                    </span>
+                    <span className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-500">📎 {m.attachments}</span>
                   )}
                   {m.otpCode && (
                     <span className="rounded bg-green-100 px-1.5 py-0.5 font-mono font-semibold text-green-800">
@@ -253,33 +218,14 @@ export function AdminInboxList({
                 </div>
               </a>
 
-              {/* per-row quick actions */}
               <div className="flex shrink-0 items-center gap-1 opacity-0 transition group-hover:opacity-100">
-                <a
-                  href={`/admin/inboxes/${domainId}/${m.id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  title="Open in new tab"
-                  className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-brand"
-                >
+                <a href={`${basePath}/${m.id}`} target="_blank" rel="noreferrer" title="Open in new tab" className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-brand">
                   ↗
                 </a>
-                <button
-                  type="button"
-                  title={m.isRead ? 'Mark unread' : 'Mark read'}
-                  disabled={pending}
-                  onClick={() => run(() => setMessagesRead(domainId, [m.id], !m.isRead))}
-                  className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-brand"
-                >
+                <button type="button" title={m.isRead ? 'Mark unread' : 'Mark read'} disabled={pending} onClick={() => run(() => actions.setRead(scopeId, [m.id], !m.isRead))} className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-brand">
                   {m.isRead ? '○' : '●'}
                 </button>
-                <button
-                  type="button"
-                  title={m.isArchived ? 'Unarchive' : 'Archive'}
-                  disabled={pending}
-                  onClick={() => run(() => setMessagesArchived(domainId, [m.id], !m.isArchived))}
-                  className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-brand"
-                >
+                <button type="button" title={m.isArchived ? 'Unarchive' : 'Archive'} disabled={pending} onClick={() => run(() => actions.setArchived(scopeId, [m.id], !m.isArchived))} className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-brand">
                   🗄
                 </button>
                 <button
@@ -287,7 +233,7 @@ export function AdminInboxList({
                   title="Delete"
                   disabled={pending}
                   onClick={() => {
-                    if (confirm('Delete this message?')) run(() => deleteMessages(domainId, [m.id]));
+                    if (confirm('Delete this message?')) run(() => actions.remove(scopeId, [m.id]));
                   }}
                   className="rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500"
                 >
@@ -304,7 +250,6 @@ export function AdminInboxList({
 
 const barBtn = 'rounded-md border bg-white px-2.5 py-1 text-gray-600 hover:bg-gray-50 disabled:opacity-50';
 
-/* — display helpers — */
 function senderName(addr: string): string {
   const local = addr.split('@')[0] ?? addr;
   return local.replace(/[._-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());

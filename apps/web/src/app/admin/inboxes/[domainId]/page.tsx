@@ -6,7 +6,13 @@ import { requireAdmin } from '@/lib/session';
 import { getConnectionInfo } from '@/lib/mail-connection';
 import { AdminComposer } from '@/components/admin/AdminComposer';
 import { ConnectionInfo } from '@/components/admin/ConnectionInfo';
-import { AdminInboxList, type InboxMessage } from '@/components/admin/AdminInboxList';
+import { InboxList, type InboxMessage } from '@/components/InboxList';
+import {
+  setMessagesArchived,
+  setMessagesRead,
+  setMessagesStarred,
+  deleteMessages,
+} from '@/app/admin/inbox-actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -87,7 +93,17 @@ export default async function AdminDomainInboxPage({
       <ConnectionInfo info={connection} />
 
       {/* messages — searchable, selectable, archivable; opens in a new tab */}
-      <AdminInboxList domainId={domainId} messages={messages} />
+      <InboxList
+        scopeId={domainId}
+        basePath={`/admin/inboxes/${domainId}`}
+        messages={messages}
+        actions={{
+          setArchived: setMessagesArchived,
+          setRead: setMessagesRead,
+          setStarred: setMessagesStarred,
+          remove: deleteMessages,
+        }}
+      />
     </div>
   );
 }

@@ -3,6 +3,11 @@ import { notFound } from 'next/navigation';
 import { prisma } from '@inboxi/db';
 import { requireUser } from '@/lib/session';
 import { AttachmentList } from '@/components/AttachmentList';
+import {
+  archiveMessageAction,
+  starMessageAction,
+  deleteMessageAction,
+} from '../../../inbox-actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,12 +58,40 @@ export default async function MessageDetailPage({
             </div>
             <div className="text-xs text-gray-400">To {message.toAddress}</div>
           </div>
-          <Link
-            href={`/dashboard/compose?from=${encodeURIComponent(message.toAddress)}&to=${encodeURIComponent(message.fromAddress)}&subject=${encodeURIComponent('Re: ' + (message.subject ?? ''))}`}
-            className="shrink-0 rounded bg-brand px-3 py-1.5 text-sm text-white hover:bg-brand-dark"
-          >
-            Reply
-          </Link>
+          <div className="flex shrink-0 items-center gap-2">
+            <Link
+              href={`/dashboard/compose?from=${encodeURIComponent(message.toAddress)}&to=${encodeURIComponent(message.fromAddress)}&subject=${encodeURIComponent('Re: ' + (message.subject ?? ''))}`}
+              className="rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark"
+            >
+              Reply
+            </Link>
+            <form action={starMessageAction}>
+              <input type="hidden" name="id" value={message.id} />
+              <input type="hidden" name="mailboxId" value={mailbox.id} />
+              <input type="hidden" name="starred" value={String(!message.isStarred)} />
+              <button
+                title={message.isStarred ? 'Unstar' : 'Star'}
+                className={`rounded-lg border bg-white px-2.5 py-1.5 text-sm hover:bg-gray-50 ${message.isStarred ? 'text-amber-400' : 'text-gray-500'}`}
+              >
+                {message.isStarred ? '★' : '☆'}
+              </button>
+            </form>
+            <form action={archiveMessageAction}>
+              <input type="hidden" name="id" value={message.id} />
+              <input type="hidden" name="mailboxId" value={mailbox.id} />
+              <input type="hidden" name="archived" value={String(!message.isArchived)} />
+              <button className="rounded-lg border bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                {message.isArchived ? 'Unarchive' : 'Archive'}
+              </button>
+            </form>
+            <form action={deleteMessageAction}>
+              <input type="hidden" name="id" value={message.id} />
+              <input type="hidden" name="mailboxId" value={mailbox.id} />
+              <button className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50">
+                Delete
+              </button>
+            </form>
+          </div>
         </div>
 
         <div className="p-4">
