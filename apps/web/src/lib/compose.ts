@@ -27,15 +27,26 @@ function contextFor(from: string, recipient: ComposeRecipient): Record<string, u
   };
 }
 
-// Choose the sender display name for recipient #i: a single fixed name, or a
-// name rotated from the pool sequentially (by index) or at random.
-function pickFromName(input: Omit<ComposeInput, 'scheduleAt'>, i: number): string | undefined {
-  const pool = input.fromNames ?? [];
-  if ((input.fromNameMode === 'sequential' || input.fromNameMode === 'random') && pool.length > 0) {
-    if (input.fromNameMode === 'sequential') return pool[i % pool.length];
-    return pool[Math.floor(Math.random() * pool.length)];
+// Pick an item for recipient #i from an optional pool: rotate sequentially (by
+// index) or at random; fall back to the single value otherwise.
+function pickRotated(
+  single: string | undefined,
+  pool: string[] | undefined,
+  mode: 'single' | 'sequential' | 'random' | undefined,
+  i: number,
+): string | undefined {
+  const list = pool ?? [];
+  if ((mode === 'sequential' || mode === 'random') && list.length > 0) {
+    return mode === 'sequential' ? list[i % list.length] : list[Math.floor(Math.random() * list.length)];
   }
-  return input.fromName?.trim() || undefined;
+  return single && single.trim() ? single : undefined;
+}
+
+function pickFromName(input: Omit<ComposeInput, 'scheduleAt'>, i: number): string | undefined {
+  return pickRotated(input.fromName, input.fromNames, input.fromNameMode, i);
+}
+function pickSubject(input: Omit<ComposeInput, 'scheduleAt'>, i: number): string | undefined {
+  return pickRotated(input.subject, input.subjects, input.subjectMode, i);
 }
 
 // Deliver a composed message to every recipient now, substituting per-recipient
@@ -59,7 +70,8 @@ export async function sendComposed(
     // context so the body can reference {{from}} consistently.
     const from = renderMessage(input.from, contextFor(input.from, recipient));
     const ctx = contextFor(from, recipient);
-    const subject = input.subject ? renderMessage(input.subject, ctx) : undefined;
+    const subjectTpl = pickSubject(input, i);
+    const subject = subjectTpl ? renderMessage(subjectTpl, ctx) : undefined;
     const text = input.text ? renderMessage(input.text, ctx) : undefined;
     const html = input.html ? renderMessage(input.html, ctx) : undefined;
     const fromName = pickFromName(input, i);
@@ -104,6 +116,8 @@ export async function scheduleComposed(
       fromNames: input.fromNames ?? undefined,
       fromNameMode: input.fromNameMode ?? null,
       subject: input.subject ?? null,
+      subjects: input.subjects ?? undefined,
+      subjectMode: input.subjectMode ?? null,
       bodyText: input.text ?? null,
       bodyHtml: input.html ?? null,
       recipients: input.recipients,
@@ -151,6 +165,8 @@ export async function processScheduledMessage(id: string): Promise<void> {
     from: row.fromAddress,
     recipients,
     subject: row.subject ?? undefined,
+    subjects: (row.subjects as string[] | null) ?? undefined,
+    subjectMode: (row.subjectMode as ComposeInput['subjectMode']) ?? undefined,
     text: row.bodyText ?? undefined,
     html: row.bodyHtml ?? undefined,
     attachments,

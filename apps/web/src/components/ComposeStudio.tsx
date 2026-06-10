@@ -6,6 +6,7 @@ import { RichEditor, type RichEditorHandle } from './RichEditor';
 
 type NameMode = 'single' | 'sequential' | 'random';
 const NAMES_STORAGE_KEY = 'inboxi.senderNames';
+const SUBJECTS_STORAGE_KEY = 'inboxi.subjects';
 
 interface Recipient {
   email: string;
@@ -118,6 +119,32 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
   const [showList, setShowList] = useState(false);
 
   const [subject, setSubject] = useState(pSubject);
+  const [subjectMode, setSubjectMode] = useState<NameMode>('single');
+  const [subjectPool, setSubjectPool] = useState<string[]>([]);
+  const [newSubject, setNewSubject] = useState('');
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SUBJECTS_STORAGE_KEY);
+      if (raw) setSubjectPool(JSON.parse(raw));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(SUBJECTS_STORAGE_KEY, JSON.stringify(subjectPool));
+    } catch {
+      /* ignore */
+    }
+  }, [subjectPool]);
+
+  const addSubject = () => {
+    const v = newSubject.trim();
+    if (v && !subjectPool.includes(v)) setSubjectPool((p) => [...p, v]);
+    setNewSubject('');
+  };
+
   const [mode, setMode] = useState<'text' | 'html'>('html');
   const [bodyText, setBodyText] = useState('');
   const [bodyHtml, setBodyHtml] = useState('');
@@ -311,8 +338,13 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
       const payload: Record<string, unknown> = {
         from: fromAddress,
         recipients: recipients.map((r) => ({ email: r.email, vars: r.vars })),
-        subject,
       };
+      if (subjectMode === 'single') {
+        if (subject) payload.subject = subject;
+      } else if (subjectPool.length > 0) {
+        payload.subjectMode = subjectMode;
+        payload.subjects = subjectPool;
+      }
       payload[mode] = body;
       if (nameMode === 'single') {
         if (fromNameSingle.trim()) payload.fromName = fromNameSingle.trim();
@@ -574,15 +606,74 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
       </Section>
 
       {/* Subject */}
-      <Section title="Subject">
-        <input
-          ref={subjectRef}
-          value={subject}
-          onFocus={() => (activeField.current = 'subject')}
-          onChange={(e) => setSubject(e.target.value)}
-          placeholder="Subject — supports {{variables}}"
-          className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
-        />
+      <Section title="Subject" hint="One subject, or rotate a pool per message">
+        <div className="mb-3 flex flex-wrap gap-2">
+          {(['single', 'sequential', 'random'] as NameMode[]).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setSubjectMode(m)}
+              className={`rounded-lg border px-3 py-1.5 text-sm transition ${subjectMode === m ? 'border-brand bg-brand/5 text-brand' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              {m === 'single' ? 'Single' : m === 'sequential' ? 'Rotate in order' : 'Random'}
+            </button>
+          ))}
+        </div>
+
+        {subjectMode === 'single' ? (
+          <input
+            ref={subjectRef}
+            value={subject}
+            onFocus={() => (activeField.current = 'subject')}
+            onChange={(e) => setSubject(e.target.value)}
+            placeholder="Subject — supports {{variables}}"
+            className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+          />
+        ) : (
+          <div>
+            <div className="mb-2 flex gap-2">
+              <input
+                value={newSubject}
+                onChange={(e) => setNewSubject(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addSubject())}
+                placeholder="Add a subject to the pool — supports {{variables}}…"
+                className="flex-1 rounded-lg border px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+              />
+              <button
+                type="button"
+                onClick={addSubject}
+                className="rounded-lg bg-brand px-3 py-2 text-sm text-white hover:bg-brand-dark"
+              >
+                Add
+              </button>
+            </div>
+            {subjectPool.length === 0 ? (
+              <p className="text-xs text-gray-400">
+                No subjects yet — add a few. They&apos;re saved in this browser and{' '}
+                {subjectMode === 'sequential' ? 'rotated in order' : 'picked at random'} per message.
+              </p>
+            ) : (
+              <ul className="space-y-1.5">
+                {subjectPool.map((s) => (
+                  <li
+                    key={s}
+                    className="flex items-center justify-between gap-2 rounded-lg border bg-white px-3 py-1.5 text-sm"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-gray-700">{s}</span>
+                    <button
+                      type="button"
+                      onClick={() => setSubjectPool((p) => p.filter((x) => x !== s))}
+                      className="shrink-0 text-gray-300 hover:text-red-500"
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-1.5 text-[11px] text-gray-400">{subjectPool.length} subject(s) in pool</p>
+          </div>
+        )}
       </Section>
 
       {/* Message */}

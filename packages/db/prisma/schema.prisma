@@ -428,6 +428,8 @@ model ScheduledMessage {
   fromNames    Json? // string[] pool for sequential/random rotation
   fromNameMode String? // single | sequential | random
   subject      String?
+  subjects     Json? // string[] pool for sequential/random rotation
+  subjectMode  String? // single | sequential | random
   bodyText     String?
   bodyHtml     String?
   recipients   Json // [{ email, vars?: Record<string,string> }]

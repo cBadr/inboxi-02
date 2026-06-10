@@ -60,7 +60,11 @@ export const composeSchema = z.object({
     .max(255)
     .refine((v) => v.includes('{{') || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v), 'Invalid from address'),
   recipients: z.array(composeRecipientSchema).min(1).max(1000),
+  // `subject` is a single subject; `subjects` is a pool rotated per recipient
+  // according to `subjectMode` (sequential | random).
   subject: z.string().max(255).optional(),
+  subjects: z.array(z.string().max(255)).max(500).optional(),
+  subjectMode: z.enum(['single', 'sequential', 'random']).optional(),
   text: z.string().max(100_000).optional(),
   html: z.string().max(500_000).optional(),
   attachments: z.array(outboundAttachmentSchema).max(10).optional(),
