@@ -200,6 +200,82 @@ export async function runReputationScan(domainId: string): Promise<ReputationRes
   return { ip, listings, trustScore: score, factors };
 }
 
+// ── Deliverability summary (read-only, for the domain detail page) ──
+
+export interface DeliverabilityCheck {
+  label: string;
+  ok: boolean;
+  detail?: string;
+  fixable?: boolean;
+}
+
+export interface DeliverabilityView {
+  score: number;
+  checks: DeliverabilityCheck[];
+  recommendations: string[];
+}
+
+interface DomainForDeliverability {
+  name: string;
+  dnsReport: unknown;
+  dkimSelector: string;
+  reputationChecks?: Array<{ source: string; listed: boolean }>;
+}
+
+// Combine the stored DNS report, a live PTR lookup, and the latest blacklist
+// checks into a deliverability score + actionable recommendations.
+export async function getDeliverability(
+  domain: DomainForDeliverability,
+): Promise<DeliverabilityView> {
+  const report = domain.dnsReport as { items?: DnsCheckItem[] } | null;
+  const ok = (type: string) => report?.items?.find((i) => i.type === type)?.ok ?? false;
+  const mx = ok('MX');
+  const spf = ok('SPF');
+  const dkim = ok('DKIM');
+  const dmarc = ok('DMARC');
+
+  const ip = process.env.SERVER_IP ?? '';
+  const host = (process.env.MAIL_HOST ?? `mail.${domain.name}`).toLowerCase();
+  let ptrOk = false;
+  let ptrValue = '';
+  if (ip) {
+    try {
+      const names = await resolver().reverse(ip);
+      ptrValue = names.join(', ');
+      ptrOk = names.some((h) => h.replace(/\.$/, '').toLowerCase() === host);
+    } catch {
+      ptrValue = '';
+    }
+  }
+
+  const listed = (domain.reputationChecks ?? []).filter((c) => c.listed).map((c) => c.source);
+  const notBlacklisted = listed.length === 0;
+
+  const checks: DeliverabilityCheck[] = [
+    { label: 'MX record', ok: mx, fixable: true },
+    { label: 'SPF', ok: spf, fixable: true },
+    { label: 'DKIM', ok: dkim, fixable: true },
+    { label: 'DMARC', ok: dmarc, fixable: true },
+    { label: 'Reverse DNS (PTR)', ok: ptrOk, detail: ptrValue || 'not set' },
+    { label: 'Not on blacklists', ok: notBlacklisted, detail: listed.join(', ') || 'clean' },
+  ];
+  const score = Math.round((checks.filter((c) => c.ok).length / checks.length) * 100);
+
+  const recommendations: string[] = [];
+  if (!mx || !spf || !dkim || !dmarc)
+    recommendations.push('Click “Provision DNS” to auto-create the missing MX/SPF/DKIM/DMARC records.');
+  if (!ptrOk)
+    recommendations.push(
+      `Set reverse DNS (PTR) for ${ip || 'your server IP'} to ${host} in your VPS/DigitalOcean panel (rename the droplet to ${host}).`,
+    );
+  if (!notBlacklisted)
+    recommendations.push(`Request delisting from: ${listed.join(', ')} — see spamhaus.org/check.`);
+  if (recommendations.length === 0)
+    recommendations.push('Excellent — full authentication and clean reputation. Inbox-ready.');
+
+  return { score, checks, recommendations };
+}
+
 // Planned records for display/copy in the admin UI.
 export function plannedRecordsFor(domain: {
   name: string;

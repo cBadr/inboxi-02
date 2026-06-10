@@ -2,15 +2,11 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@inboxi/db';
 import { requireAdmin } from '@/lib/session';
-import { plannedRecordsFor } from '@/lib/domain-health';
+import { plannedRecordsFor, getDeliverability } from '@/lib/domain-health';
 import { CopyButton } from '@/components/CopyButton';
+import { DomainActions } from '@/components/DomainActions';
 import {
   setDomainAvailability,
-  toggleDomainActive,
-  provisionDns,
-  recheckDns,
-  scanReputation,
-  regenDkim,
   deleteDomain,
   assignDomain,
   unassignDomain,
@@ -61,6 +57,7 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
   const realMailboxes = await prisma.mailbox.count({
     where: { domainId: domain.id, type: { not: 'CATCH_ALL' } },
   });
+  const deliverability = await getDeliverability(domain);
 
   return (
     <div className="space-y-6">
@@ -89,15 +86,43 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
         )}
       </div>
 
-      {/* Action bar */}
-      <div className="flex flex-wrap gap-2">
-        <FormButton action={provisionDns} id={domain.id} label="Provision DNS" primary />
-        <FormButton action={recheckDns} id={domain.id} label="Re-check DNS" />
-        <FormButton action={scanReputation} id={domain.id} label="Run reputation scan" />
-        <FormButton action={regenDkim} id={domain.id} label="Regenerate DKIM" />
-        <FormButton action={toggleDomainActive} id={domain.id} label={domain.isActive ? 'Deactivate' : 'Activate'} />
+      {/* Interactive action bar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <DomainActions id={domain.id} isActive={domain.isActive} />
         {realMailboxes === 0 && (
-          <FormButton action={deleteDomain} id={domain.id} label="Delete" danger />
+          <form action={deleteDomain}>
+            <input type="hidden" name="id" value={domain.id} />
+            <button className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50">
+              Delete
+            </button>
+          </form>
+        )}
+      </div>
+
+      {/* Deliverability panel */}
+      <div className="rounded-lg border bg-white p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold">Deliverability</h2>
+          <span className={`text-2xl font-bold ${scoreColor(deliverability.score)}`}>
+            {deliverability.score}
+            <span className="text-sm font-normal text-gray-400">/100</span>
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {deliverability.checks.map((c) => (
+            <div key={c.label} className="flex items-center gap-2 text-sm">
+              <span className={c.ok ? 'text-green-600' : 'text-red-500'}>{c.ok ? '✓' : '✗'}</span>
+              <span className="text-gray-700">{c.label}</span>
+              {c.detail && <span className="truncate text-xs text-gray-400">({c.detail})</span>}
+            </div>
+          ))}
+        </div>
+        {deliverability.recommendations.length > 0 && (
+          <ul className="mt-3 space-y-1 border-t pt-3 text-xs text-gray-600">
+            {deliverability.recommendations.map((r, i) => (
+              <li key={i}>💡 {r}</li>
+            ))}
+          </ul>
         )}
       </div>
 
@@ -260,28 +285,3 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function FormButton({
-  action,
-  id,
-  label,
-  primary,
-  danger,
-}: {
-  action: (fd: FormData) => Promise<void>;
-  id: string;
-  label: string;
-  primary?: boolean;
-  danger?: boolean;
-}) {
-  const cls = primary
-    ? 'bg-brand text-white hover:bg-brand-dark'
-    : danger
-      ? 'border border-red-300 text-red-600 hover:bg-red-50'
-      : 'border hover:bg-gray-50';
-  return (
-    <form action={action}>
-      <input type="hidden" name="id" value={id} />
-      <button className={`rounded px-3 py-1.5 text-sm ${cls}`}>{label}</button>
-    </form>
-  );
-}

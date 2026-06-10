@@ -33,7 +33,13 @@ export function planDnsRecords(input: DnsPlanInput): DnsRecord[] {
     {
       type: 'TXT',
       name: '_dmarc',
-      content: `v=DMARC1; p=quarantine; rua=mailto:${input.dmarcReportTo ?? `dmarc@${input.domain}`}`,
+      content: `v=DMARC1; p=quarantine; rua=mailto:${input.dmarcReportTo ?? `dmarc@${input.domain}`}; fo=1`,
+    },
+    {
+      // SMTP TLS reporting (RFC 8460) — improves trust + surfaces TLS issues.
+      type: 'TXT',
+      name: '_smtp._tls',
+      content: `v=TLSRPTv1; rua=mailto:tlsrpt@${input.domain}`,
     },
   ];
 

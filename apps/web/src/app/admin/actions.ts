@@ -41,6 +41,9 @@ export async function createDomain(
   // Every domain gets a catch-all mailbox + must be added to the MTA host_list.
   await ensureCatchAllMailbox(domain.id, domain.name);
   await syncHostList();
+  // Auto-provision DNS: generate DKIM keys + plan records, and push to Cloudflare
+  // when a token is configured. Never fail domain creation on a DNS hiccup.
+  await provisionDomainDns(domain.id).catch(() => {});
   revalidatePath('/admin/domains');
   return { ok: true };
 }
