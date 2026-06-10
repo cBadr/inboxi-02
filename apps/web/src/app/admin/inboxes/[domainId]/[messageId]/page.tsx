@@ -5,6 +5,11 @@ import { extractOtp } from '@inboxi/shared';
 import { requireAdmin } from '@/lib/session';
 import { AdminComposer } from '@/components/admin/AdminComposer';
 import { AttachmentList } from '@/components/AttachmentList';
+import {
+  archiveMessageAction,
+  starMessageAction,
+  deleteMessageAction,
+} from '@/app/admin/inbox-actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,6 +74,32 @@ export default async function AdminMessageDetailPage({
             triggerLabel="Forward"
             triggerClassName="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3.5 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
           />
+          <form action={starMessageAction}>
+            <input type="hidden" name="id" value={message.id} />
+            <input type="hidden" name="domainId" value={domainId} />
+            <input type="hidden" name="starred" value={String(!message.isStarred)} />
+            <button
+              title={message.isStarred ? 'Unstar' : 'Star'}
+              className={`rounded-lg border bg-white px-2.5 py-1.5 text-sm transition hover:bg-gray-50 ${message.isStarred ? 'text-amber-400' : 'text-gray-500'}`}
+            >
+              {message.isStarred ? '★' : '☆'}
+            </button>
+          </form>
+          <form action={archiveMessageAction}>
+            <input type="hidden" name="id" value={message.id} />
+            <input type="hidden" name="domainId" value={domainId} />
+            <input type="hidden" name="archived" value={String(!message.isArchived)} />
+            <button className="rounded-lg border bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50">
+              {message.isArchived ? 'Unarchive' : 'Archive'}
+            </button>
+          </form>
+          <form action={deleteMessageAction}>
+            <input type="hidden" name="id" value={message.id} />
+            <input type="hidden" name="domainId" value={domainId} />
+            <button className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50">
+              Delete
+            </button>
+          </form>
         </div>
       </div>
 

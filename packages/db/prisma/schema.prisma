@@ -359,6 +359,8 @@ model Message {
   spamScore  Float?
   isSpam     Boolean  @default(false)
   isRead     Boolean  @default(false)
+  isArchived Boolean  @default(false)
+  isStarred  Boolean  @default(false)
   isGated    Boolean  @default(false) // stored but hidden behind the registration gate
   receivedAt DateTime @default(now())
   createdAt  DateTime @default(now())
