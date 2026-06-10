@@ -5,7 +5,20 @@ import {
   CloudflareClient,
   type DnsRecord,
 } from '@inboxi/integrations/cloudflare';
-import { encryptSecret } from './crypto';
+import { encryptSecret, decryptSecret } from './crypto';
+
+// A DKIM key is healthy only if it exists AND decrypts with the current
+// ENCRYPTION_KEY. If the key was encrypted with a stale ENCRYPTION_KEY, signing
+// silently fails — so we treat that as "needs regeneration".
+function dkimKeyHealthy(encrypted: string | null): boolean {
+  if (!encrypted) return false;
+  try {
+    decryptSecret(encrypted);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export interface DnsProvisionResult {
   ok: boolean;
@@ -22,9 +35,9 @@ export async function provisionDomainDns(domainId: string): Promise<DnsProvision
   const domain = await prisma.domain.findUnique({ where: { id: domainId } });
   if (!domain) return { ok: false, applied: false, records: [], error: 'domain_not_found' };
 
-  // Ensure DKIM keys.
+  // Ensure DKIM keys (self-healing: regenerate if missing OR undecryptable).
   let publicKeyDns = domain.dkimPublicKey;
-  if (!domain.dkimPrivateKey || !domain.dkimPublicKey) {
+  if (!dkimKeyHealthy(domain.dkimPrivateKey) || !domain.dkimPublicKey) {
     const kp = generateDkimKeyPair();
     publicKeyDns = kp.publicKeyDns;
     await prisma.domain.update({

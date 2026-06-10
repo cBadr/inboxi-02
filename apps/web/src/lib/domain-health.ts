@@ -2,6 +2,7 @@ import { Resolver } from 'node:dns/promises';
 import net from 'node:net';
 import { prisma, DnsStatus } from '@inboxi/db';
 import { planDnsRecords, type DnsRecord } from '@inboxi/integrations/cloudflare';
+import { decryptSecret } from './crypto';
 
 // Use public resolvers so checks reflect the world's view, not the local box.
 function resolver(): Resolver {
@@ -252,6 +253,7 @@ interface DomainForDeliverability {
   dnsReport: unknown;
   dkimSelector: string;
   dkimPublicKey?: string | null;
+  dkimPrivateKey?: string | null;
   reputationChecks?: Array<{ source: string; listed: boolean }>;
 }
 
@@ -284,6 +286,28 @@ export async function getDeliverability(
   // SMTP reachability (port 25 banner)
   const smtp = await checkSmtpBanner(host, 25);
 
+  // DKIM key integrity: private key must decrypt with the current ENCRYPTION_KEY.
+  let dkimKeyOk = false;
+  if (domain.dkimPrivateKey) {
+    try {
+      decryptSecret(domain.dkimPrivateKey);
+      dkimKeyOk = true;
+    } catch {
+      dkimKeyOk = false;
+    }
+  }
+
+  // Published DKIM TXT must match the stored public key (else verification fails).
+  let dkimPublishedMatch = false;
+  try {
+    const txt = await resolver().resolveTxt(`${domain.dkimSelector}._domainkey.${domain.name}`);
+    const joined = txt.map((c) => c.join('')).join('');
+    const pubMatch = /p=([A-Za-z0-9+/=]+)/.exec(joined)?.[1];
+    dkimPublishedMatch = Boolean(pubMatch && domain.dkimPublicKey && pubMatch === domain.dkimPublicKey);
+  } catch {
+    dkimPublishedMatch = false;
+  }
+
   const listed = (domain.reputationChecks ?? []).filter((c) => c.listed).map((c) => c.source);
   const notBlacklisted = listed.length === 0;
 
@@ -298,6 +322,20 @@ export async function getDeliverability(
       fix: 'dns',
     },
     { key: 'dmarc', label: 'DMARC', ok: okOf('DMARC'), value: valOf('DMARC'), fix: 'dns' },
+    {
+      key: 'dkim_key',
+      label: 'DKIM key valid',
+      ok: dkimKeyOk,
+      value: dkimKeyOk ? 'private key decrypts' : 'key broken — regenerate',
+      fix: 'dns',
+    },
+    {
+      key: 'dkim_published',
+      label: 'DKIM published = active',
+      ok: dkimPublishedMatch,
+      value: dkimPublishedMatch ? 'matches' : 'published key differs from active key',
+      fix: 'dns',
+    },
     {
       key: 'ptr',
       label: 'Reverse DNS (PTR)',
@@ -325,7 +363,13 @@ export async function getDeliverability(
   const dnsFixable = checks.some((c) => !c.ok && c.fix === 'dns');
 
   const recommendations: string[] = [];
-  if (dnsFixable)
+  if (!dkimKeyOk)
+    recommendations.push('DKIM key is broken (encryption mismatch) — “Fix DNS automatically” regenerates a valid key.');
+  if (dkimKeyOk && !dkimPublishedMatch)
+    recommendations.push('The published DKIM record is stale — re-publish via “Fix DNS automatically”.');
+  if (dnsFixable && !process.env.CLOUDFLARE_API_TOKEN)
+    recommendations.push('CLOUDFLARE_API_TOKEN is not set — add it to .env for automatic DNS fixes, or update records manually.');
+  else if (dnsFixable)
     recommendations.push('Use “Fix DNS automatically” to publish the missing MX/SPF/DKIM/DMARC records via Cloudflare.');
   for (const c of checks) {
     if (!c.ok && c.fix === 'manual' && c.hint) recommendations.push(c.hint);
