@@ -1,4 +1,22 @@
+import { createHash } from 'node:crypto';
+import { headers } from 'next/headers';
 import { prisma } from '@inboxi/db';
+
+// Hash a viewer's IP into a non-reversible bucket so per-ad unique-visitor
+// counts work without storing raw addresses.
+async function viewerHash(): Promise<string | null> {
+  try {
+    const h = await headers();
+    const ip = h.get('x-forwarded-for')?.split(',')[0]?.trim() || h.get('x-real-ip') || '';
+    if (!ip) return null;
+    return createHash('sha256')
+      .update(`${ip}|${process.env.ENCRYPTION_KEY ?? 'ads'}`)
+      .digest('hex')
+      .slice(0, 32);
+  } catch {
+    return null;
+  }
+}
 
 // Server component that renders a weighted-random active ad for a zone and
 // records an impression. Renders nothing if the zone has no eligible ads.
@@ -29,7 +47,10 @@ export async function AdSlot({ zone }: { zone: string }) {
     }
   }
 
-  await prisma.adEvent.create({ data: { adId: chosen.id, type: 'impression' } }).catch(() => {});
+  const ipHash = await viewerHash();
+  await prisma.adEvent
+    .create({ data: { adId: chosen.id, type: 'impression', ipHash } })
+    .catch(() => {});
 
   if (chosen.htmlContent) {
     return <div dangerouslySetInnerHTML={{ __html: chosen.htmlContent }} />;

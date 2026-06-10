@@ -27,6 +27,13 @@ export const createMailboxSchema = z.object({
   displayName: z.string().max(120).optional(),
 });
 
+export const outboundAttachmentSchema = z.object({
+  filename: z.string().min(1).max(255),
+  contentType: z.string().max(127).optional(),
+  // base64-encoded bytes; ~9.3MB base64 ≈ 7MB binary per attachment.
+  contentBase64: z.string().max(9_800_000),
+});
+
 export const sendMessageSchema = z.object({
   // Any address on a domain the user controls (provisioned or not).
   from: emailSchema,
@@ -34,6 +41,7 @@ export const sendMessageSchema = z.object({
   subject: z.string().max(255).optional(),
   text: z.string().max(100_000).optional(),
   html: z.string().max(500_000).optional(),
+  attachments: z.array(outboundAttachmentSchema).max(10).optional(),
 });
 
 export const createDomainSchema = z.object({

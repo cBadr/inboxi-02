@@ -20,6 +20,12 @@ export interface TransportConfig {
   smtp?: SmtpConfig; // required for SMTP_RELAY / SELF_HOST
 }
 
+export interface OutgoingAttachment {
+  filename: string;
+  contentType?: string;
+  contentBase64: string;
+}
+
 export interface OutgoingMessage {
   from: string;
   to: string;
@@ -28,6 +34,7 @@ export interface OutgoingMessage {
   html?: string;
   headers?: Record<string, string>;
   dkim?: DkimConfig;
+  attachments?: OutgoingAttachment[];
 }
 
 export interface DeliveryResult {

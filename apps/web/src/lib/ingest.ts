@@ -50,13 +50,18 @@ export async function ingestInbound(mail: InboundMail): Promise<IngestResult> {
     mail.attachments.length > 0
       ? {
           attachments: {
-            create: mail.attachments.map((a) => ({
-              filename: a.filename,
-              contentType: a.contentType ?? null,
-              sizeBytes: a.sizeBytes,
-              storageKey: a.contentBase64 ? '' : (mail.rawRef ?? ''),
-              isInline: a.isInline,
-            })),
+            create: mail.attachments.map((a) => {
+              const bytes = a.contentBase64 ? Buffer.from(a.contentBase64, 'base64') : null;
+              return {
+                filename: a.filename,
+                contentType: a.contentType ?? null,
+                sizeBytes: a.sizeBytes,
+                // Store bytes inline when forwarded; otherwise keep the raw ref.
+                storageKey: bytes ? 'db' : (mail.rawRef ?? ''),
+                content: bytes,
+                isInline: a.isInline,
+              };
+            }),
           },
         }
       : {};

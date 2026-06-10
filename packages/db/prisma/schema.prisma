@@ -379,7 +379,8 @@ model MessageAttachment {
   filename    String
   contentType String?
   sizeBytes   Int     @default(0)
-  storageKey  String // object storage key
+  storageKey  String // object storage key, or "db" when bytes are stored inline
+  content     Bytes? // inline bytes for small attachments (no object store configured)
   checksum    String?
   isInline    Boolean @default(false)
 

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@inboxi/db';
 import { requireUser } from '@/lib/session';
+import { AttachmentList } from '@/components/AttachmentList';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,17 @@ export default async function MessageDetailPage({
 
   const message = await prisma.message.findUnique({
     where: { id: messageId },
-    include: { attachments: true },
+    include: {
+      attachments: {
+        select: {
+          id: true,
+          filename: true,
+          contentType: true,
+          sizeBytes: true,
+          storageKey: true,
+        },
+      },
+    },
   });
   if (!message || message.mailboxId !== mailbox.id) notFound();
 
@@ -68,15 +79,15 @@ export default async function MessageDetailPage({
 
         {message.attachments.length > 0 && (
           <div className="border-t p-4">
-            <div className="mb-2 text-xs font-semibold uppercase text-gray-400">Attachments</div>
-            <ul className="space-y-1 text-sm">
-              {message.attachments.map((a) => (
-                <li key={a.id}>
-                  📎 {a.filename}{' '}
-                  <span className="text-xs text-gray-400">({a.sizeBytes} bytes)</span>
-                </li>
-              ))}
-            </ul>
+            <AttachmentList
+              attachments={message.attachments.map((a) => ({
+                id: a.id,
+                filename: a.filename,
+                contentType: a.contentType,
+                sizeBytes: a.sizeBytes,
+                hasContent: a.storageKey === 'db',
+              }))}
+            />
           </div>
         )}
       </div>

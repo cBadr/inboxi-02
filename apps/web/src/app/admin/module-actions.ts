@@ -77,6 +77,81 @@ export async function toggleAd(formData: FormData): Promise<void> {
   revalidatePath('/admin/ads');
 }
 
+export async function deleteAd(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const id = String(formData.get('id') ?? '');
+  await prisma.ad.delete({ where: { id } }).catch(() => {});
+  revalidatePath('/admin/ads');
+}
+
+// Seed a demo zone with 3 sample ads + sample impression/click events so the
+// Ads dashboard and per-ad performance counters can be exercised immediately.
+const DEMO_ADS = [
+  {
+    name: 'Inboxi Pro — Upgrade',
+    imageUrl: 'https://placehold.co/600x160/4f46e5/ffffff?text=Inboxi+Pro',
+    targetUrl: 'https://inboxi.online/pricing',
+    weight: 3,
+    impressions: 1240,
+    clicks: 86,
+  },
+  {
+    name: 'Secure Custom Domains',
+    imageUrl: 'https://placehold.co/600x160/0ea5e9/ffffff?text=Custom+Domains',
+    targetUrl: 'https://inboxi.online/features',
+    weight: 2,
+    impressions: 880,
+    clicks: 41,
+  },
+  {
+    name: 'Developer API & Webhooks',
+    imageUrl: 'https://placehold.co/600x160/10b981/ffffff?text=Developer+API',
+    targetUrl: 'https://inboxi.online/docs',
+    weight: 1,
+    impressions: 530,
+    clicks: 12,
+  },
+];
+
+export async function seedDemoAds(): Promise<void> {
+  await requireAdmin();
+  const zone = await prisma.adZone.upsert({
+    where: { key: 'home_top' },
+    update: {},
+    create: { key: 'home_top', name: 'Homepage — Top Banner', width: 600, height: 160 },
+  });
+
+  for (const demo of DEMO_ADS) {
+    const ad = await prisma.ad.create({
+      data: {
+        zoneId: zone.id,
+        name: demo.name,
+        imageUrl: demo.imageUrl,
+        targetUrl: demo.targetUrl,
+        weight: demo.weight,
+      },
+    });
+    // Seed sample events (distinct ipHash per impression → unique visitors).
+    const events = [
+      ...Array.from({ length: demo.impressions }, (_, i) => ({
+        adId: ad.id,
+        type: 'impression',
+        ipHash: `demo-${ad.id}-${i % Math.max(1, Math.floor(demo.impressions * 0.7))}`,
+      })),
+      ...Array.from({ length: demo.clicks }, (_, i) => ({
+        adId: ad.id,
+        type: 'click',
+        ipHash: `demo-${ad.id}-c${i}`,
+      })),
+    ];
+    // Chunk inserts to keep payloads reasonable.
+    for (let i = 0; i < events.length; i += 500) {
+      await prisma.adEvent.createMany({ data: events.slice(i, i + 500) });
+    }
+  }
+  revalidatePath('/admin/ads');
+}
+
 // ── CMS ──────────────────────────────────────────────────────
 export async function createCmsPage(
   _prev: ActionResult | null,

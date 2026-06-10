@@ -159,6 +159,7 @@ export async function sendMail(user: CurrentUser, input: SendMessageInput): Prom
     subject: input.subject,
     text: input.text,
     html: input.html,
+    attachments: input.attachments,
     dkim,
   });
 

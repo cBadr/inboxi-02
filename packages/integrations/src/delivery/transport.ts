@@ -34,6 +34,11 @@ export async function deliverVia(
       text: msg.text,
       html: msg.html,
       headers: msg.headers,
+      attachments: msg.attachments?.map((a) => ({
+        filename: a.filename,
+        content: Buffer.from(a.contentBase64, 'base64'),
+        contentType: a.contentType,
+      })),
       dkim: msg.dkim
         ? {
             domainName: msg.dkim.domainName,

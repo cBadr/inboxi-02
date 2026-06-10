@@ -17,13 +17,22 @@ function buildPayload(parsed, recipient, opts = {}) {
     (parsed.from && parsed.from.value && parsed.from.value[0] && parsed.from.value[0].address) ||
     'unknown@unknown.invalid';
 
+  // Inline attachment bytes up to this size are forwarded (base64) so the web
+  // app can store + serve them. Larger attachments forward as metadata only.
+  const INLINE_CAP = 10 * 1024 * 1024; // 10 MB per attachment
   const attachments = Array.isArray(parsed.attachments)
-    ? parsed.attachments.map((a) => ({
-        filename: a.filename || 'attachment',
-        contentType: a.contentType || undefined,
-        sizeBytes: a.size || (a.content ? a.content.length : 0),
-        isInline: a.contentDisposition === 'inline',
-      }))
+    ? parsed.attachments.map((a) => {
+        const size = a.size || (a.content ? a.content.length : 0);
+        const hasBytes = Buffer.isBuffer(a.content) && a.content.length > 0;
+        return {
+          filename: a.filename || 'attachment',
+          contentType: a.contentType || undefined,
+          sizeBytes: size,
+          isInline: a.contentDisposition === 'inline',
+          contentBase64:
+            hasBytes && a.content.length <= INLINE_CAP ? a.content.toString('base64') : undefined,
+        };
+      })
     : [];
 
   return {

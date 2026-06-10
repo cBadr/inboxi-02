@@ -1,6 +1,33 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+
+interface Attachment {
+  filename: string;
+  contentType?: string;
+  contentBase64: string;
+  size: number;
+}
+
+const TOTAL_ATTACHMENT_CAP = 7 * 1024 * 1024; // 7 MB total (binary)
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result);
+      resolve(result.includes(',') ? result.slice(result.indexOf(',') + 1) : result);
+    };
+    reader.onerror = () => reject(new Error('read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function fmtSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 interface AdminComposerProps {
   domains: string[];
@@ -40,8 +67,37 @@ export function AdminComposer({
   const [subject, setSubject] = useState(defaultSubject);
   const [body, setBody] = useState('');
   const [mode, setMode] = useState<Mode>('text');
+  const [files, setFiles] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const totalSize = files.reduce((s, f) => s + f.size, 0);
+
+  const onPickFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files ?? []);
+    if (picked.length === 0) return;
+    setStatus(null);
+    const added: Attachment[] = [];
+    let running = totalSize;
+    for (const file of picked) {
+      if (running + file.size > TOTAL_ATTACHMENT_CAP) {
+        setStatus({ ok: false, msg: `Attachments exceed ${fmtSize(TOTAL_ATTACHMENT_CAP)} limit.` });
+        break;
+      }
+      added.push({
+        filename: file.name,
+        contentType: file.type || undefined,
+        contentBase64: await readFileAsBase64(file),
+        size: file.size,
+      });
+      running += file.size;
+    }
+    setFiles((prev) => [...prev, ...added]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeFile = (idx: number) => setFiles((prev) => prev.filter((_, i) => i !== idx));
 
   const fromAddress = useMemo(
     () => `${local.trim() || 'hello'}@${domain}`,
@@ -50,6 +106,7 @@ export function AdminComposer({
 
   const reset = () => {
     setBody('');
+    setFiles([]);
     setStatus(null);
   };
 
@@ -58,8 +115,15 @@ export function AdminComposer({
     setLoading(true);
     setStatus(null);
     try {
-      const payload: Record<string, string> = { from: fromAddress, to, subject };
+      const payload: Record<string, unknown> = { from: fromAddress, to, subject };
       payload[mode] = body;
+      if (files.length > 0) {
+        payload.attachments = files.map((f) => ({
+          filename: f.filename,
+          contentType: f.contentType,
+          contentBase64: f.contentBase64,
+        }));
+      }
       const res = await fetch('/api/mail/send', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -69,6 +133,7 @@ export function AdminComposer({
       if (res.ok && data.ok) {
         setStatus({ ok: true, msg: 'Message sent — delivered to the recipient.' });
         setBody('');
+        setFiles([]);
       } else {
         setStatus({ ok: false, msg: humanError(data.error) });
       }
@@ -206,12 +271,62 @@ export function AdminComposer({
                   <textarea
                     value={body}
                     onChange={(e) => setBody(e.target.value)}
-                    rows={12}
+                    rows={10}
                     placeholder={
                       mode === 'html' ? '<p>Write HTML here…</p>' : 'Write your message…'
                     }
                     className={`w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand ${mode === 'html' ? 'font-mono' : ''}`}
                   />
+                </div>
+
+                {/* Attachments */}
+                <div>
+                  <div className="mb-1 flex items-center justify-between">
+                    <label className="block text-xs font-medium uppercase tracking-wide text-gray-400">
+                      Attachments
+                    </label>
+                    <span className="text-[11px] text-gray-400">
+                      {files.length > 0 ? `${fmtSize(totalSize)} / ${fmtSize(TOTAL_ATTACHMENT_CAP)}` : `max ${fmtSize(TOTAL_ATTACHMENT_CAP)}`}
+                    </span>
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    onChange={onPickFiles}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-dashed px-3 py-1.5 text-sm text-gray-600 transition hover:border-brand hover:text-brand"
+                  >
+                    <ClipIcon /> Attach files
+                  </button>
+                  {files.length > 0 && (
+                    <ul className="mt-2 space-y-1.5">
+                      {files.map((f, i) => (
+                        <li
+                          key={i}
+                          className="flex items-center gap-2 rounded-lg border bg-gray-50 px-3 py-1.5 text-sm"
+                        >
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-brand/10 text-[9px] font-bold text-brand">
+                            {(f.filename.split('.').pop() ?? 'FILE').slice(0, 4).toUpperCase()}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-gray-700">{f.filename}</span>
+                          <span className="shrink-0 text-xs text-gray-400">{fmtSize(f.size)}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeFile(i)}
+                            className="shrink-0 text-gray-300 hover:text-red-500"
+                            title="Remove"
+                          >
+                            ✕
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
 
@@ -313,6 +428,13 @@ function FilterIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3Z" />
+    </svg>
+  );
+}
+function ClipIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
     </svg>
   );
 }

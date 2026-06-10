@@ -4,6 +4,7 @@ import { prisma } from '@inboxi/db';
 import { extractOtp } from '@inboxi/shared';
 import { requireAdmin } from '@/lib/session';
 import { AdminComposer } from '@/components/admin/AdminComposer';
+import { AttachmentList } from '@/components/AttachmentList';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +18,18 @@ export default async function AdminMessageDetailPage({
 
   const message = await prisma.message.findUnique({
     where: { id: messageId },
-    include: { attachments: true, domain: { select: { name: true } } },
+    include: {
+      attachments: {
+        select: {
+          id: true,
+          filename: true,
+          contentType: true,
+          sizeBytes: true,
+          storageKey: true,
+        },
+      },
+      domain: { select: { name: true } },
+    },
   });
   if (!message || message.domainId !== domainId) notFound();
 
@@ -124,28 +136,15 @@ export default async function AdminMessageDetailPage({
         {/* attachments */}
         {message.attachments.length > 0 && (
           <div className="border-t bg-gray-50/50 px-6 py-4">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
-              {message.attachments.length} attachment{message.attachments.length === 1 ? '' : 's'}
-            </div>
-            <ul className="flex flex-wrap gap-2">
-              {message.attachments.map((a) => (
-                <li
-                  key={a.id}
-                  className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2 text-sm"
-                >
-                  <span className="flex h-8 w-8 items-center justify-center rounded bg-gray-100 text-gray-400">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                      <path d="M14 2v6h6" />
-                    </svg>
-                  </span>
-                  <div className="min-w-0">
-                    <div className="truncate font-medium text-gray-700">{a.filename}</div>
-                    <div className="text-xs text-gray-400">{formatBytes(a.sizeBytes)}</div>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <AttachmentList
+              attachments={message.attachments.map((a) => ({
+                id: a.id,
+                filename: a.filename,
+                contentType: a.contentType,
+                sizeBytes: a.sizeBytes,
+                hasContent: a.storageKey === 'db',
+              }))}
+            />
           </div>
         )}
       </article>
@@ -169,9 +168,4 @@ function avatarColor(addr: string): string {
   let h = 0;
   for (let i = 0; i < addr.length; i++) h = (h * 31 + addr.charCodeAt(i)) >>> 0;
   return AVATAR_COLORS[h % AVATAR_COLORS.length]!;
-}
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
