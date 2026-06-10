@@ -7,6 +7,7 @@ import {
 import type { SendMessageInput } from '@inboxi/shared';
 import type { CurrentUser } from './session';
 import { decryptSecret } from './crypto';
+import { getAvailableDomains } from './domains';
 
 // SMTP passwords are stored encrypted; fall back to the raw value if it wasn't
 // (e.g. a self-host transport with no auth).
@@ -91,13 +92,24 @@ export async function resolveTransports(domainId: string): Promise<TransportConf
 }
 
 export async function sendMail(user: CurrentUser, input: SendMessageInput): Promise<SendResult> {
-  const mailbox = await prisma.mailbox.findUnique({
-    where: { id: input.fromMailboxId },
-    include: { domain: true },
-  });
-  if (!mailbox || mailbox.userId !== user.id || !mailbox.isActive) {
-    return { ok: false, status: OutboundStatus.FAILED, error: 'invalid_mailbox' };
+  // Send from any address on a domain the user controls (provisioned or not).
+  const fromAddress = input.from.trim().toLowerCase();
+  const domainName = fromAddress.split('@')[1];
+  if (!domainName) return { ok: false, status: OutboundStatus.FAILED, error: 'invalid_from' };
+
+  const domain = await prisma.domain.findUnique({ where: { name: domainName } });
+  if (!domain || !domain.isActive) {
+    return { ok: false, status: OutboundStatus.FAILED, error: 'unknown_from_domain' };
   }
+  // Admins may send from any domain; others only from available ones.
+  if (user.roleName !== 'admin') {
+    const available = await getAvailableDomains(user.id);
+    if (!available.some((d) => d.id === domain.id)) {
+      return { ok: false, status: OutboundStatus.FAILED, error: 'from_domain_not_available' };
+    }
+  }
+  // Link to a real mailbox if the from-address is provisioned (for the record).
+  const mailbox = await prisma.mailbox.findUnique({ where: { address: fromAddress } });
 
   // Quota
   const quota = await sendQuotaFor(user);
@@ -114,8 +126,8 @@ export async function sendMail(user: CurrentUser, input: SendMessageInput): Prom
     const blocked = await prisma.outboundMessage.create({
       data: {
         userId: user.id,
-        mailboxId: mailbox.id,
-        fromAddress: mailbox.address,
+        mailboxId: mailbox?.id ?? null,
+        fromAddress,
         toAddress: input.to,
         subject: input.subject ?? null,
         status: OutboundStatus.BLOCKED,
@@ -127,21 +139,22 @@ export async function sendMail(user: CurrentUser, input: SendMessageInput): Prom
   }
 
   // Transport chain + DKIM
-  const chain = await resolveTransports(mailbox.domainId);
+  const chain = await resolveTransports(domain.id);
   if (chain.length === 0) {
     return { ok: false, status: OutboundStatus.FAILED, error: 'no_transport' };
   }
+  const dkimKey = decryptMaybe(domain.dkimPrivateKey);
   const dkim =
-    mailbox.domain.dkimPrivateKey && mailbox.domain.dkimPublicKey
+    dkimKey && domain.dkimPublicKey
       ? {
-          domainName: mailbox.domain.name,
-          keySelector: mailbox.domain.dkimSelector,
-          privateKey: mailbox.domain.dkimPrivateKey,
+          domainName: domain.name,
+          keySelector: domain.dkimSelector,
+          privateKey: dkimKey,
         }
       : undefined;
 
   const result = await deliverWithFailover(chain, {
-    from: mailbox.address,
+    from: fromAddress,
     to: input.to,
     subject: input.subject,
     text: input.text,
@@ -160,8 +173,8 @@ export async function sendMail(user: CurrentUser, input: SendMessageInput): Prom
   const outbound = await prisma.outboundMessage.create({
     data: {
       userId: user.id,
-      mailboxId: mailbox.id,
-      fromAddress: mailbox.address,
+      mailboxId: mailbox?.id ?? null,
+      fromAddress,
       toAddress: input.to,
       subject: input.subject ?? null,
       status: result.ok ? OutboundStatus.SENT : OutboundStatus.FAILED,

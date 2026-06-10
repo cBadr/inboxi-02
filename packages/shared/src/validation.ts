@@ -28,7 +28,8 @@ export const createMailboxSchema = z.object({
 });
 
 export const sendMessageSchema = z.object({
-  fromMailboxId: z.string().cuid(),
+  // Any address on a domain the user controls (provisioned or not).
+  from: emailSchema,
   to: emailSchema,
   subject: z.string().max(255).optional(),
   text: z.string().max(100_000).optional(),

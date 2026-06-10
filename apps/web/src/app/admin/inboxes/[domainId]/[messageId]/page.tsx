@@ -30,13 +30,21 @@ export default async function AdminMessageDetailPage({
       </Link>
 
       <div className="mt-3 rounded-lg border bg-white">
-        <div className="border-b p-4">
-          <h1 className="text-lg font-semibold">{message.subject || '(no subject)'}</h1>
-          <div className="mt-1 text-sm text-gray-500">
-            From <span className="font-medium">{message.fromAddress}</span> ·{' '}
-            {new Date(message.receivedAt).toLocaleString()}
+        <div className="flex items-start justify-between border-b p-4">
+          <div>
+            <h1 className="text-lg font-semibold">{message.subject || '(no subject)'}</h1>
+            <div className="mt-1 text-sm text-gray-500">
+              From <span className="font-medium">{message.fromAddress}</span> ·{' '}
+              {new Date(message.receivedAt).toLocaleString()}
+            </div>
+            <div className="text-xs text-gray-400">To {message.toAddress}</div>
           </div>
-          <div className="text-xs text-gray-400">To {message.toAddress}</div>
+          <Link
+            href={`/dashboard/compose?from=${encodeURIComponent(message.toAddress)}&to=${encodeURIComponent(message.fromAddress)}&subject=${encodeURIComponent('Re: ' + (message.subject ?? ''))}`}
+            className="shrink-0 rounded bg-brand px-3 py-1.5 text-sm text-white hover:bg-brand-dark"
+          >
+            Reply
+          </Link>
         </div>
 
         <div className="p-4">
