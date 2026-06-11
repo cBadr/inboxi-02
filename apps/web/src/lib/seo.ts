@@ -11,10 +11,11 @@ export interface SeoData {
 }
 
 const DEFAULTS: SeoData = {
-  title: 'Inboxi — Free Temporary Email',
+  title: 'Inboxi — Send & Receive Emails Anonymously',
   description:
-    'Instant disposable email addresses. Receive mail in seconds, no signup required to start.',
-  keywords: 'temporary email, disposable email, temp mail, throwaway email',
+    'Instant anonymous email. Get a free disposable inbox in seconds, receive mail and verification codes, and send from custom domains — no signup required to start.',
+  keywords:
+    'temporary email, disposable email, anonymous email, temp mail, throwaway email, send email anonymously',
   ogImage: null,
   canonical: null,
   robots: null,

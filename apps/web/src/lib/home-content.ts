@@ -159,7 +159,7 @@ export const DEFAULT_HOME: HomeContent = {
     primaryCta: { label: 'Create free account', href: '/signup' },
     secondaryCta: { label: 'Try it now', href: '#inbox' },
   },
-  footerTagline: 'Disposable email that respects your privacy.',
+  footerTagline: 'Send & receive emails anonymously — disposable inboxes that respect your privacy.',
   socials: [
     { platform: 'twitter', url: '' },
     { platform: 'telegram', url: '' },
