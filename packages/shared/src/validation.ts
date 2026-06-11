@@ -75,6 +75,14 @@ export const composeSchema = z.object({
   fromName: z.string().max(100).optional(),
   fromNames: z.array(z.string().max(100)).max(500).optional(),
   fromNameMode: z.enum(['single', 'sequential', 'random']).optional(),
+  // Body / "letter" rotation. `format` says whether the rendered body is text or
+  // HTML; `letters` is a pool rotated per recipient according to `letterMode`.
+  format: z.enum(['text', 'html']).optional(),
+  letters: z.array(z.string().max(500_000)).max(200).optional(),
+  letterMode: z.enum(['single', 'sequential', 'random']).optional(),
+  // Starting index for sequential rotation, so client-side throttled batches keep
+  // a continuous rotation across multiple requests.
+  indexOffset: z.number().int().min(0).max(1_000_000).optional(),
 });
 
 export type ComposeInput = z.infer<typeof composeSchema>;

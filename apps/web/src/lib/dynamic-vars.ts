@@ -39,8 +39,32 @@ const FIRST_NAMES = [
   'Lucas', 'Mia', 'Ethan', 'Ava', 'Noah', 'Isabella', 'Liam', 'Amelia', 'Henry', 'Zoe',
 ];
 
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`;
+}
+// {{randomdate}} / {{randomdate:YYYY-MM-DD:YYYY-MM-DD}} → e.g. "1st July 2026".
+const RANDOMDATE_RE =
+  /\{\{\s*random[_\s]?date(?::(\d{4}-\d{2}-\d{2}))?(?::(\d{4}-\d{2}-\d{2}))?\s*\}\}/gi;
+function resolveRandomDates(input: string): string {
+  return input.replace(RANDOMDATE_RE, (_m, startStr?: string, endStr?: string) => {
+    const now = Date.now();
+    const start = startStr ? Date.parse(startStr) : now;
+    const end = endStr ? Date.parse(endStr) : now + 365 * 24 * 60 * 60 * 1000;
+    const lo = Math.min(start, end);
+    const hi = Math.max(start, end);
+    const d = new Date(lo + Math.random() * (hi - lo));
+    return `${ordinal(d.getDate())} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  });
+}
+
 export function resolveDynamicTokens(input: string): string {
-  return input.replace(DYNAMIC_RE, (match, kindRaw: string, nStr?: string) => {
+  return resolveRandomDates(input).replace(DYNAMIC_RE, (match, kindRaw: string, nStr?: string) => {
     const kind = kindRaw.toLowerCase();
     const n = nStr ? parseInt(nStr, 10) : undefined;
     switch (kind) {

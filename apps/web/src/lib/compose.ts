@@ -16,15 +16,22 @@ export interface ComposeResult {
 // few system values, exposed both flat ({{name}}) and namespaced ({{recipient.name}}).
 function contextFor(from: string, recipient: ComposeRecipient): Record<string, unknown> {
   const vars = recipient.vars ?? {};
+  const emailid = recipient.email.split('@')[0] ?? '';
   return {
     ...vars,
     to: recipient.email,
     email: recipient.email,
+    emailid, // local part of the recipient address (before the @)
     from,
     domain: from.split('@')[1] ?? '',
     date: new Date().toLocaleDateString(),
-    recipient: { email: recipient.email, ...vars },
+    recipient: { email: recipient.email, emailid, ...vars },
   };
+}
+
+function pickLetter(input: Omit<ComposeInput, 'scheduleAt'>, i: number): string | undefined {
+  const single = (input.format === 'html' ? input.html : input.text) ?? input.html ?? input.text;
+  return pickRotated(single, input.letters, input.letterMode, i);
 }
 
 // Pick an item for recipient #i from an optional pool: rotate sequentially (by
@@ -64,25 +71,28 @@ export async function sendComposed(
     errors: [],
   };
 
+  const offset = input.indexOffset ?? 0;
+  const format = input.format ?? (input.html != null ? 'html' : 'text');
   for (let i = 0; i < input.recipients.length; i++) {
     const recipient = input.recipients[i]!;
+    const gi = offset + i; // global rotation index across throttled batches
     // Resolve a (possibly random) from-address first, then expose it in the
     // context so the body can reference {{from}} consistently.
     const from = renderMessage(input.from, contextFor(input.from, recipient));
     const ctx = contextFor(from, recipient);
-    const subjectTpl = pickSubject(input, i);
+    const subjectTpl = pickSubject(input, gi);
     const subject = subjectTpl ? renderMessage(subjectTpl, ctx) : undefined;
-    const text = input.text ? renderMessage(input.text, ctx) : undefined;
-    const html = input.html ? renderMessage(input.html, ctx) : undefined;
-    const fromName = pickFromName(input, i);
+    const letterTpl = pickLetter(input, gi);
+    const body = letterTpl ? renderMessage(letterTpl, ctx) : undefined;
+    const fromName = pickFromName(input, gi);
 
     const r = await sendMail(user, {
       from,
       fromName: fromName ? renderMessage(fromName, ctx) : undefined,
       to: recipient.email,
       subject,
-      text,
-      html,
+      text: format === 'text' ? body : undefined,
+      html: format === 'html' ? body : undefined,
       attachments: input.attachments,
     });
 
@@ -120,6 +130,9 @@ export async function scheduleComposed(
       subjectMode: input.subjectMode ?? null,
       bodyText: input.text ?? null,
       bodyHtml: input.html ?? null,
+      format: input.format ?? null,
+      letters: input.letters ?? undefined,
+      letterMode: input.letterMode ?? null,
       recipients: input.recipients,
       attachments: input.attachments ?? undefined,
       scheduleAt,
@@ -169,6 +182,9 @@ export async function processScheduledMessage(id: string): Promise<void> {
     subjectMode: (row.subjectMode as ComposeInput['subjectMode']) ?? undefined,
     text: row.bodyText ?? undefined,
     html: row.bodyHtml ?? undefined,
+    format: (row.format as ComposeInput['format']) ?? undefined,
+    letters: (row.letters as string[] | null) ?? undefined,
+    letterMode: (row.letterMode as ComposeInput['letterMode']) ?? undefined,
     attachments,
     fromName: row.fromName ?? undefined,
     fromNames: (row.fromNames as string[] | null) ?? undefined,

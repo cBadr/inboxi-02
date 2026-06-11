@@ -5,8 +5,19 @@ import { useSearchParams } from 'next/navigation';
 import { RichEditor, type RichEditorHandle } from './RichEditor';
 
 type NameMode = 'single' | 'sequential' | 'random';
+type SendMethod = 'all' | 'one' | 'groups';
 const NAMES_STORAGE_KEY = 'inboxi.senderNames';
 const SUBJECTS_STORAGE_KEY = 'inboxi.subjects';
+const LETTERS_STORAGE_KEY = 'inboxi.letters';
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+function fmtDuration(sec: number): string {
+  const s = Math.max(0, Math.round(sec));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return r ? `${m}m ${r}s` : `${m}m`;
+}
 
 interface Recipient {
   email: string;
@@ -21,7 +32,7 @@ interface Attachment {
 
 const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
 const TOTAL_ATTACHMENT_CAP = 7 * 1024 * 1024;
-const SYSTEM_VARS = ['to', 'from', 'date', 'domain'];
+const SYSTEM_VARS = ['to', 'emailid', 'from', 'date', 'domain'];
 const DYNAMIC_VARS: Array<{ token: string; hint: string }> = [
   { token: '{{random:6}}', hint: 'Random number with N digits (e.g. {{random:8}})' },
   { token: '{{md5}}', hint: 'Random MD5 hash (32 hex). {{md5:12}} for a shorter one' },
@@ -150,10 +161,47 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
   const [bodyHtml, setBodyHtml] = useState('');
   const [files, setFiles] = useState<Attachment[]>([]);
 
+  // Letter (body) rotation pool — persisted in localStorage.
+  const [letterMode, setLetterMode] = useState<NameMode>('single');
+  const [letterPool, setLetterPool] = useState<string[]>([]);
+  const [newLetter, setNewLetter] = useState('');
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LETTERS_STORAGE_KEY);
+      if (raw) setLetterPool(JSON.parse(raw));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(LETTERS_STORAGE_KEY, JSON.stringify(letterPool));
+    } catch {
+      /* ignore */
+    }
+  }, [letterPool]);
+  const addLetter = () => {
+    const v = newLetter.trim();
+    if (v && !letterPool.includes(v)) setLetterPool((p) => [...p, v]);
+    setNewLetter('');
+  };
+
+  // Delivery throttling.
+  const [sendMethod, setSendMethod] = useState<SendMethod>('all');
+  const [groupSize, setGroupSize] = useState(10);
+  const [delayMin, setDelayMin] = useState(3);
+  const [delayMax, setDelayMax] = useState(10);
+
+  // Random-date inserter.
+  const [rdFrom, setRdFrom] = useState('');
+  const [rdTo, setRdTo] = useState('');
+
   const [scheduleMode, setScheduleMode] = useState<'now' | 'later'>('now');
   const [scheduleAt, setScheduleAt] = useState('');
 
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<{ sent: number; failed: number; total: number } | null>(null);
+  const cancelRef = useRef(false);
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const subjectRef = useRef<HTMLInputElement>(null);
@@ -165,6 +213,19 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
   const fromAddress = useMemo(() => `${local.trim() || 'hello'}@${domain}`, [local, domain]);
   const totalSize = files.reduce((s, f) => s + f.size, 0);
   const allVars = [...SYSTEM_VARS, ...varColumns];
+
+  // Estimated completion time from the chosen delivery method + delays.
+  const recipientCount = recipients.length;
+  const numChunks =
+    sendMethod === 'all'
+      ? 1
+      : sendMethod === 'one'
+        ? recipientCount
+        : Math.ceil(recipientCount / Math.max(1, groupSize));
+  const lo = Math.max(0, Math.min(delayMin, delayMax));
+  const hi = Math.max(delayMin, delayMax);
+  const avgDelay = (lo + hi) / 2;
+  const etaSeconds = Math.max(0, numChunks - 1) * avgDelay + recipientCount * 0.5;
 
   // ── recipients ──
   const mergeRecipients = (incoming: Recipient[], cols?: string[]) => {
@@ -268,6 +329,7 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
     richHandle.current?.insert(token);
   };
   const insertVar = (name: string) => insertRaw(`{{${name}}}`);
+  const insertRandomDate = () => insertRaw(rdFrom && rdTo ? `{{randomdate:${rdFrom}:${rdTo}}}` : '{{randomdate}}');
 
   // ── attachments ──
   const onPickFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -307,81 +369,146 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
     e.target.value = '';
   };
 
+  // Build the shared payload (everything except recipients + indexOffset).
+  const buildBase = (): Record<string, unknown> | string => {
+    const base: Record<string, unknown> = { from: fromAddress, format: mode };
+    // subject
+    if (subjectMode === 'single') {
+      if (subject) base.subject = subject;
+    } else if (subjectPool.length > 0) {
+      base.subjectMode = subjectMode;
+      base.subjects = subjectPool;
+    }
+    // from name
+    if (nameMode === 'single') {
+      if (fromNameSingle.trim()) base.fromName = fromNameSingle.trim();
+    } else if (namePool.length > 0) {
+      base.fromNameMode = nameMode;
+      base.fromNames = namePool;
+    }
+    // body / letters
+    if (letterMode === 'single') {
+      const body = mode === 'html' ? bodyHtml : bodyText;
+      if (!body.trim()) return 'Write a message first.';
+      base[mode] = body;
+    } else {
+      if (letterPool.length === 0) return 'Add at least one letter to the pool.';
+      base.letterMode = letterMode;
+      base.letters = letterPool;
+    }
+    if (files.length) {
+      base.attachments = files.map((f) => ({
+        filename: f.filename,
+        contentType: f.contentType,
+        contentBase64: f.contentBase64,
+      }));
+    }
+    return base;
+  };
+
+  const post = (payload: Record<string, unknown>) =>
+    fetch('/api/mail/compose', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
   // ── send ──
   const submit = async () => {
     setStatus(null);
+    setProgress(null);
     if (recipients.length === 0) {
       setStatus({ ok: false, msg: 'Add at least one recipient.' });
       return;
     }
-    const body = mode === 'html' ? bodyHtml : bodyText;
-    if (!body.trim()) {
-      setStatus({ ok: false, msg: 'Write a message first.' });
+    const base = buildBase();
+    if (typeof base === 'string') {
+      setStatus({ ok: false, msg: base });
       return;
     }
-    let scheduleIso: string | undefined;
+    const recs = recipients.map((r) => ({ email: r.email, vars: r.vars }));
+
+    // Scheduled campaigns go out as a single batch at the chosen time.
     if (scheduleMode === 'later') {
-      if (!scheduleAt) {
-        setStatus({ ok: false, msg: 'Pick a date & time to schedule.' });
-        return;
-      }
+      if (!scheduleAt) return setStatus({ ok: false, msg: 'Pick a date & time to schedule.' });
       const at = new Date(scheduleAt);
-      if (at.getTime() <= Date.now()) {
-        setStatus({ ok: false, msg: 'Scheduled time must be in the future.' });
-        return;
+      if (at.getTime() <= Date.now())
+        return setStatus({ ok: false, msg: 'Scheduled time must be in the future.' });
+      setLoading(true);
+      try {
+        const res = await post({ ...base, recipients: recs, scheduleAt: at.toISOString() });
+        const data = await res.json();
+        setStatus(
+          res.ok && data.scheduled
+            ? { ok: true, msg: `Scheduled ${recs.length} message(s) for ${new Date(data.at).toLocaleString()}.` }
+            : { ok: false, msg: humanError(data.error) },
+        );
+      } catch {
+        setStatus({ ok: false, msg: 'Network error — please try again.' });
+      } finally {
+        setLoading(false);
       }
-      scheduleIso = at.toISOString();
+      return;
     }
 
-    setLoading(true);
-    try {
-      const payload: Record<string, unknown> = {
-        from: fromAddress,
-        recipients: recipients.map((r) => ({ email: r.email, vars: r.vars })),
-      };
-      if (subjectMode === 'single') {
-        if (subject) payload.subject = subject;
-      } else if (subjectPool.length > 0) {
-        payload.subjectMode = subjectMode;
-        payload.subjects = subjectPool;
-      }
-      payload[mode] = body;
-      if (nameMode === 'single') {
-        if (fromNameSingle.trim()) payload.fromName = fromNameSingle.trim();
-      } else if (namePool.length > 0) {
-        payload.fromNameMode = nameMode;
-        payload.fromNames = namePool;
-      }
-      if (files.length) {
-        payload.attachments = files.map((f) => ({
-          filename: f.filename,
-          contentType: f.contentType,
-          contentBase64: f.contentBase64,
-        }));
-      }
-      if (scheduleIso) payload.scheduleAt = scheduleIso;
+    // Build chunks per delivery method.
+    let chunks: typeof recs[] = [];
+    if (sendMethod === 'all') chunks = [recs];
+    else if (sendMethod === 'one') chunks = recs.map((r) => [r]);
+    else {
+      const g = Math.max(1, groupSize);
+      for (let i = 0; i < recs.length; i += g) chunks.push(recs.slice(i, i + g));
+    }
 
-      const res = await fetch('/api/mail/compose', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setStatus({ ok: false, msg: humanError(data.error) });
-      } else if (data.scheduled) {
+    cancelRef.current = false;
+    setLoading(true);
+    let offset = 0;
+    let sent = 0;
+    let failed = 0;
+    setProgress({ sent: 0, failed: 0, total: recs.length });
+    try {
+      for (let ci = 0; ci < chunks.length; ci++) {
+        if (cancelRef.current) {
+          setStatus({ ok: true, msg: `Stopped. Sent ${sent}/${recs.length}.` });
+          break;
+        }
+        const chunk = chunks[ci]!;
+        try {
+          const res = await post({ ...base, recipients: chunk, indexOffset: offset });
+          const data = await res.json();
+          if (res.ok) {
+            sent += data.sent ?? 0;
+            failed += data.failed ?? 0;
+            if (data.blocked) {
+              setProgress({ sent, failed, total: recs.length });
+              setStatus({ ok: false, msg: `Stopped — quota or spam filter. Sent ${sent}/${recs.length}.` });
+              break;
+            }
+          } else {
+            failed += chunk.length;
+          }
+        } catch {
+          failed += chunk.length;
+        }
+        offset += chunk.length;
+        setProgress({ sent, failed, total: recs.length });
+
+        if (ci < chunks.length - 1 && !cancelRef.current) {
+          const delay = (lo + Math.random() * (hi - lo)) * 1000;
+          const remainingChunks = chunks.length - ci - 1;
+          setStatus({
+            ok: true,
+            msg: `Sent ${sent}/${recs.length} — next in ${Math.round(delay / 1000)}s · ~${fmtDuration(remainingChunks * avgDelay)} left`,
+          });
+          await sleep(delay);
+        }
+      }
+      if (!cancelRef.current) {
         setStatus({
-          ok: true,
-          msg: `Scheduled ${recipients.length} message(s) for ${new Date(data.at).toLocaleString()}.`,
-        });
-      } else {
-        setStatus({
-          ok: data.sent > 0,
-          msg: `Sent ${data.sent}/${data.total}${data.failed ? ` · ${data.failed} failed` : ''}${data.blocked ? ' (stopped — quota or filter)' : ''}.`,
+          ok: sent > 0,
+          msg: `Done — sent ${sent}/${recs.length}${failed ? ` · ${failed} failed` : ''}.`,
         });
       }
-    } catch {
-      setStatus({ ok: false, msg: 'Network error — please try again.' });
     } finally {
       setLoading(false);
     }
@@ -603,6 +730,43 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
             </span>
           </div>
         </div>
+
+        {/* Random date inserter */}
+        <div className="mt-3 rounded-lg border bg-gray-50/50 p-2.5">
+          <div className="mb-1.5 flex items-center gap-2">
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 font-mono text-xs text-amber-700">
+              {'{{randomdate}}'}
+            </span>
+            <span className="text-[11px] text-gray-400">A random date in a range → e.g. “1st July 2026”.</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-[11px] text-gray-500">From</label>
+            <input
+              type="date"
+              value={rdFrom}
+              onChange={(e) => setRdFrom(e.target.value)}
+              className="rounded border px-2 py-1 text-xs"
+            />
+            <label className="text-[11px] text-gray-500">To</label>
+            <input
+              type="date"
+              value={rdTo}
+              onChange={(e) => setRdTo(e.target.value)}
+              className="rounded border px-2 py-1 text-xs"
+            />
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={insertRandomDate}
+              className="rounded-lg bg-brand px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-dark"
+            >
+              Insert random date
+            </button>
+          </div>
+        </div>
+        <p className="mt-2 text-[11px] text-gray-400">
+          <code className="font-mono">{`{{emailid}}`}</code> = the part of the recipient&apos;s address before the @.
+        </p>
       </Section>
 
       {/* Subject */}
@@ -706,24 +870,80 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
           </label>
         </div>
 
-        {mode === 'html' ? (
-          <RichEditor
-            value={bodyHtml}
-            onChange={setBodyHtml}
-            handleRef={(h) => (richHandle.current = h)}
-            onFocus={() => (activeField.current = 'body')}
-            placeholder="Write your message — use the toolbar and insert {{variables}}…"
-          />
+        {/* letter rotation mode */}
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] uppercase tracking-wide text-gray-400">Letters:</span>
+          {(['single', 'sequential', 'random'] as NameMode[]).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setLetterMode(m)}
+              className={`rounded-lg border px-2.5 py-1 text-xs transition ${letterMode === m ? 'border-brand bg-brand/5 text-brand' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              {m === 'single' ? 'Single' : m === 'sequential' ? 'Rotate in order' : 'Random'}
+            </button>
+          ))}
+        </div>
+
+        {letterMode === 'single' ? (
+          mode === 'html' ? (
+            <RichEditor
+              value={bodyHtml}
+              onChange={setBodyHtml}
+              handleRef={(h) => (richHandle.current = h)}
+              onFocus={() => (activeField.current = 'body')}
+              placeholder="Write your message — use the toolbar and insert {{variables}}…"
+            />
+          ) : (
+            <textarea
+              ref={bodyTextRef}
+              value={bodyText}
+              onFocus={() => (activeField.current = 'body')}
+              onChange={(e) => setBodyText(e.target.value)}
+              rows={12}
+              placeholder="Write your plain-text message — supports {{variables}}…"
+              className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+            />
+          )
         ) : (
-          <textarea
-            ref={bodyTextRef}
-            value={bodyText}
-            onFocus={() => (activeField.current = 'body')}
-            onChange={(e) => setBodyText(e.target.value)}
-            rows={12}
-            placeholder="Write your plain-text message — supports {{variables}}…"
-            className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
-          />
+          <div>
+            <div className="mb-2 flex gap-2">
+              <textarea
+                value={newLetter}
+                onChange={(e) => setNewLetter(e.target.value)}
+                rows={3}
+                placeholder={`Add a ${mode === 'html' ? 'HTML' : 'plain-text'} letter to the pool — supports {{variables}}…`}
+                className={`flex-1 rounded-lg border px-3 py-2 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand ${mode === 'html' ? 'font-mono' : ''}`}
+              />
+              <button type="button" onClick={addLetter} className="self-start rounded-lg bg-brand px-3 py-2 text-sm text-white hover:bg-brand-dark">
+                Add
+              </button>
+            </div>
+            {letterPool.length === 0 ? (
+              <p className="text-xs text-gray-400">
+                No letters yet. They&apos;re saved in this browser and{' '}
+                {letterMode === 'sequential' ? 'rotated in order' : 'picked at random'} per recipient.
+              </p>
+            ) : (
+              <ul className="space-y-1.5">
+                {letterPool.map((l, i) => (
+                  <li key={i} className="flex items-start justify-between gap-2 rounded-lg border bg-white px-3 py-2 text-sm">
+                    <span className="min-w-0 flex-1 whitespace-pre-wrap break-words text-xs text-gray-600">
+                      {l.length > 200 ? `${l.slice(0, 200)}…` : l}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setLetterPool((p) => p.filter((_, j) => j !== i))}
+                      className="shrink-0 text-gray-300 hover:text-red-500"
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-1.5 text-[11px] text-gray-400">{letterPool.length} letter(s) in pool · format: {mode}</p>
+          </div>
         )}
       </Section>
 
@@ -748,25 +968,76 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
         )}
       </Section>
 
-      {/* Schedule */}
-      <Section title="Delivery">
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-1.5 text-sm">
+      {/* Delivery */}
+      <Section title="Delivery" hint={recipientCount > 0 ? `est. ~${fmtDuration(etaSeconds)} to finish` : undefined}>
+        {/* method */}
+        <div className="mb-3">
+          <div className="mb-1.5 text-[11px] uppercase tracking-wide text-gray-400">Sending method</div>
+          <div className="flex flex-wrap gap-2">
+            {([
+              ['all', 'All at once'],
+              ['one', 'One by one'],
+              ['groups', 'Groups'],
+            ] as Array<[SendMethod, string]>).map(([m, lbl]) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setSendMethod(m)}
+                className={`rounded-lg border px-3 py-1.5 text-sm transition ${sendMethod === m ? 'border-brand bg-brand/5 text-brand' : 'text-gray-600 hover:bg-gray-50'}`}
+              >
+                {lbl}
+              </button>
+            ))}
+            {sendMethod === 'groups' && (
+              <label className="flex items-center gap-1.5 text-sm text-gray-600">
+                of
+                <input
+                  type="number"
+                  min={1}
+                  max={500}
+                  value={groupSize}
+                  onChange={(e) => setGroupSize(Math.max(1, Number(e.target.value) || 1))}
+                  className="w-16 rounded border px-2 py-1 text-sm"
+                />
+                each
+              </label>
+            )}
+          </div>
+        </div>
+
+        {/* random delay (one-by-one / groups) */}
+        {sendMethod !== 'all' && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-gray-50/50 p-2.5 text-sm">
+            <span className="text-[11px] uppercase tracking-wide text-gray-400">Random delay</span>
             <input
-              type="radio"
-              name="sched"
-              checked={scheduleMode === 'now'}
-              onChange={() => setScheduleMode('now')}
+              type="number"
+              min={0}
+              max={3600}
+              value={delayMin}
+              onChange={(e) => setDelayMin(Math.max(0, Number(e.target.value) || 0))}
+              className="w-16 rounded border px-2 py-1"
             />
+            <span className="text-gray-400">to</span>
+            <input
+              type="number"
+              min={0}
+              max={3600}
+              value={delayMax}
+              onChange={(e) => setDelayMax(Math.max(0, Number(e.target.value) || 0))}
+              className="w-16 rounded border px-2 py-1"
+            />
+            <span className="text-gray-500">seconds between {sendMethod === 'one' ? 'sends' : 'groups'}</span>
+          </div>
+        )}
+
+        {/* schedule */}
+        <div className="flex flex-wrap items-center gap-3 border-t pt-3">
+          <label className="flex items-center gap-1.5 text-sm">
+            <input type="radio" name="sched" checked={scheduleMode === 'now'} onChange={() => setScheduleMode('now')} />
             Send now
           </label>
           <label className="flex items-center gap-1.5 text-sm">
-            <input
-              type="radio"
-              name="sched"
-              checked={scheduleMode === 'later'}
-              onChange={() => setScheduleMode('later')}
-            />
+            <input type="radio" name="sched" checked={scheduleMode === 'later'} onChange={() => setScheduleMode('later')} />
             Schedule
           </label>
           {scheduleMode === 'later' && (
@@ -778,29 +1049,61 @@ export function ComposeStudio({ domains }: { domains: string[] }) {
             />
           )}
         </div>
+        {recipientCount > 0 && scheduleMode === 'now' && (
+          <p className="mt-2 text-xs text-gray-500">
+            {sendMethod === 'all'
+              ? `Sending all ${recipientCount} at once.`
+              : `Sending in ${numChunks} ${sendMethod === 'one' ? 'individual sends' : 'groups'} — estimated ~${fmtDuration(etaSeconds)} to finish.`}
+          </p>
+        )}
       </Section>
 
       {/* Send */}
-      <div className="flex items-center gap-3 border-t pt-4">
-        <button
-          type="button"
-          onClick={submit}
-          disabled={loading || !domain}
-          className="inline-flex items-center gap-2 rounded-lg bg-brand px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-50"
-        >
-          {loading
-            ? 'Working…'
-            : scheduleMode === 'later'
-              ? `Schedule${recipients.length ? ` (${recipients.length})` : ''}`
-              : `Send now${recipients.length ? ` (${recipients.length})` : ''}`}
-        </button>
-        <span className="text-xs text-gray-400">
-          DKIM-signed · TLS · per-recipient variables
-        </span>
-        {status && (
-          <span className={`ml-auto text-sm ${status.ok ? 'text-green-600' : 'text-red-600'}`}>
-            {status.msg}
-          </span>
+      <div className="space-y-3 border-t pt-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={submit}
+            disabled={loading || !domain}
+            className="inline-flex items-center gap-2 rounded-lg bg-brand px-5 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-brand-dark disabled:opacity-50"
+          >
+            {loading
+              ? progress
+                ? `Sending… ${progress.sent + progress.failed}/${progress.total}`
+                : 'Working…'
+              : scheduleMode === 'later'
+                ? `Schedule${recipientCount ? ` (${recipientCount})` : ''}`
+                : `Send now${recipientCount ? ` (${recipientCount})` : ''}`}
+          </button>
+          {loading && progress && (
+            <button
+              type="button"
+              onClick={() => (cancelRef.current = true)}
+              className="rounded-lg border px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+            >
+              Stop
+            </button>
+          )}
+          <span className="text-xs text-gray-400">DKIM-signed · TLS · per-recipient variables</span>
+          {status && (
+            <span className={`ml-auto text-sm ${status.ok ? 'text-green-600' : 'text-red-600'}`}>
+              {status.msg}
+            </span>
+          )}
+        </div>
+
+        {progress && (
+          <div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+              <div
+                className="h-full rounded-full bg-brand transition-all"
+                style={{ width: `${Math.round(((progress.sent + progress.failed) / Math.max(1, progress.total)) * 100)}%` }}
+              />
+            </div>
+            <div className="mt-1 text-xs text-gray-500">
+              {progress.sent} sent · {progress.failed} failed · {progress.total} total
+            </div>
+          </div>
         )}
       </div>
     </div>

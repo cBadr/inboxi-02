@@ -437,6 +437,9 @@ model ScheduledMessage {
   subjectMode  String? // single | sequential | random
   bodyText     String?
   bodyHtml     String?
+  format       String? // text | html
+  letters      Json? // string[] body pool for rotation
+  letterMode   String? // single | sequential | random
   recipients   Json // [{ email, vars?: Record<string,string> }]
   attachments  Json? // [{ filename, contentType?, contentBase64 }]
 
