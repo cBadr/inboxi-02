@@ -88,58 +88,92 @@ export function TempInbox() {
     setTimeout(() => setCopied(false), 1500);
   };
 
+  const messages = inbox?.messages ?? [];
+  const expiring = countdown === 'expired';
+
   return (
-    <div className="mt-8 rounded-lg border bg-white shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
-        <div>
-          <div className="text-xs uppercase tracking-wide text-gray-400">Your address</div>
-          <div className="font-mono text-lg">{address ?? 'generating…'}</div>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-500">
-            Expires in <span className="font-mono">{countdown || '—'}</span>
-          </span>
-          <button
-            onClick={copy}
-            disabled={!address}
-            className="rounded bg-brand px-3 py-1.5 text-sm text-white hover:bg-brand-dark disabled:opacity-50"
-          >
-            {copied ? 'Copied!' : 'Copy'}
-          </button>
-        </div>
-      </div>
-
-      <ul className="divide-y">
-        {(inbox?.messages ?? []).length === 0 && (
-          <li className="p-8 text-center text-sm text-gray-500">
-            Waiting for incoming email… messages appear here automatically.
-          </li>
-        )}
-        {(inbox?.messages ?? []).map((m) => (
-          <li key={m.id} className="p-4 hover:bg-gray-50">
-            <div className="flex items-center justify-between">
-              <span className="font-medium">{m.fromAddress}</span>
-              <span className="text-xs text-gray-400">
-                {new Date(m.receivedAt).toLocaleTimeString()}
+    <div className="relative">
+      {/* soft glow behind the card */}
+      <div
+        aria-hidden
+        className="absolute -inset-4 -z-10 rounded-3xl bg-gradient-to-br from-brand/20 via-accent/10 to-transparent blur-2xl"
+      />
+      <div className="overflow-hidden rounded-2xl border border-white/60 bg-white/80 shadow-xl backdrop-blur">
+        {/* header */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-gradient-to-r from-brand/5 to-accent/5 p-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-gray-400">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-pulse-ring rounded-full bg-green-400" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
               </span>
+              Live address
             </div>
-            <div className="text-sm">{m.subject || '(no subject)'}</div>
-            {m.snippet && <div className="mt-1 text-xs text-gray-500">{m.snippet}</div>}
-          </li>
-        ))}
-      </ul>
-
-      {inbox?.gated && (
-        <div className="border-t bg-amber-50 p-4 text-center text-sm">
-          <strong>{inbox.withheldCount}</strong> more message
-          {inbox.withheldCount === 1 ? '' : 's'} waiting. You&apos;ve reached the free limit of{' '}
-          {gateAfter}.{' '}
-          <a href="/signup" className="font-semibold text-brand underline">
-            Sign up free
-          </a>{' '}
-          to unlock them.
+            <div className="mt-1 truncate font-mono text-base font-semibold text-gray-900 sm:text-lg">
+              {address ?? (
+                <span className="inline-block h-5 w-48 rounded skeleton align-middle" />
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span
+              className={`rounded-lg px-2.5 py-1.5 text-xs font-medium ${expiring ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-600'}`}
+            >
+              ⏳ <span className="font-mono">{countdown || '—'}</span>
+            </span>
+            <button
+              onClick={copy}
+              disabled={!address}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3.5 py-1.5 text-sm font-medium text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-dark active:translate-y-0 disabled:opacity-50"
+            >
+              {copied ? '✓ Copied' : 'Copy'}
+            </button>
+          </div>
         </div>
-      )}
+
+        {/* messages */}
+        <ul className="max-h-[22rem] divide-y divide-gray-100 overflow-y-auto">
+          {messages.length === 0 && (
+            <li className="px-6 py-12 text-center">
+              <div className="mx-auto mb-3 flex h-12 w-12 animate-float items-center justify-center rounded-2xl bg-brand/10 text-2xl">
+                📭
+              </div>
+              <p className="text-sm font-medium text-gray-600">Waiting for incoming email…</p>
+              <p className="mt-1 text-xs text-gray-400">Messages appear here automatically — no refresh needed.</p>
+            </li>
+          )}
+          {messages.map((m) => (
+            <li key={m.id} className="group flex gap-3 px-4 py-3 transition hover:bg-brand/5">
+              <span
+                className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand to-accent text-xs font-semibold text-white"
+              >
+                {(m.fromAddress[0] ?? '?').toUpperCase()}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-sm font-semibold text-gray-900">{m.fromAddress}</span>
+                  <span className="shrink-0 text-xs text-gray-400">
+                    {new Date(m.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+                <div className="truncate text-sm text-gray-700">{m.subject || '(no subject)'}</div>
+                {m.snippet && <div className="mt-0.5 truncate text-xs text-gray-400">{m.snippet}</div>}
+              </div>
+            </li>
+          ))}
+        </ul>
+
+        {/* gate CTA */}
+        {inbox?.gated && (
+          <div className="border-t bg-gradient-to-r from-amber-50 to-orange-50 p-4 text-center text-sm">
+            <strong className="text-amber-700">{inbox.withheldCount}</strong> more message
+            {inbox.withheldCount === 1 ? '' : 's'} waiting — you&apos;ve hit the free limit of {gateAfter}.{' '}
+            <a href="/signup" className="font-semibold text-brand underline-offset-2 hover:underline">
+              Sign up free to unlock →
+            </a>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -3,9 +3,79 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
 body {
   @apply bg-gray-50 text-gray-900 antialiased;
+}
+
+/* Accessible, visible focus for keyboard users only. */
+:focus-visible {
+  outline: 2px solid theme('colors.brand.DEFAULT');
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Animated mesh-gradient used behind the hero. */
+.bg-hero-mesh {
+  background:
+    radial-gradient(60% 60% at 15% 20%, rgba(99, 102, 241, 0.22), transparent 60%),
+    radial-gradient(50% 50% at 85% 15%, rgba(6, 182, 212, 0.18), transparent 60%),
+    radial-gradient(60% 60% at 75% 85%, rgba(129, 140, 248, 0.16), transparent 60%),
+    linear-gradient(120deg, #ffffff, #f5f7ff);
+  background-size: 200% 200%;
+  animation: gradient-pan 14s ease infinite;
+}
+
+/* Gradient text helper. */
+.text-gradient {
+  background: linear-gradient(120deg, theme('colors.brand.DEFAULT'), theme('colors.accent.DEFAULT'));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Scroll-reveal initial state (revealed by Reveal.tsx). */
+.reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition:
+    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* Skeleton shimmer. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: theme('colors.gray.100');
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
+  animation: shimmer 1.6s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .reveal {
+    opacity: 1;
+    transform: none;
+  }
 }

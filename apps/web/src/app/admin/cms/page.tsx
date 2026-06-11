@@ -19,6 +19,18 @@ export default async function AdminCmsPage() {
         </p>
       </div>
 
+      {/* Homepage editor entry */}
+      <Link
+        href="/admin/cms/home"
+        className="flex items-center justify-between rounded-xl border bg-gradient-to-r from-brand/5 to-accent/5 p-4 transition hover:border-brand/30"
+      >
+        <div>
+          <div className="text-sm font-semibold text-gray-900">🏠 Homepage</div>
+          <div className="text-xs text-gray-500">Edit the marketing landing page — hero, features, stats, pricing CTA, FAQ.</div>
+        </div>
+        <span className="text-sm font-medium text-brand">Edit →</span>
+      </Link>
+
       <div className="max-w-md">
         <h2 className="mb-2 text-sm font-semibold">New page</h2>
         <ModuleActionForm action={createCmsPage} submitLabel="Create page">

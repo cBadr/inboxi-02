@@ -4,10 +4,30 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { prisma } from '@inboxi/db';
 import { requireAdmin } from '@/lib/session';
+import { saveHomeContentRaw, type HomeContent } from '@/lib/home-content';
 
 export interface ActionResult {
   ok: boolean;
   error?: string;
+}
+
+// Persist the CMS-editable homepage content (JSON edited in the Homepage editor).
+export async function saveHomeContent(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  await requireAdmin();
+  const raw = String(formData.get('content') ?? '');
+  let parsed: HomeContent;
+  try {
+    parsed = JSON.parse(raw) as HomeContent;
+  } catch {
+    return { ok: false, error: 'Invalid content' };
+  }
+  await saveHomeContentRaw(parsed);
+  revalidatePath('/');
+  revalidatePath('/admin/cms/home');
+  return { ok: true };
 }
 
 // ── SEO ──────────────────────────────────────────────────────
