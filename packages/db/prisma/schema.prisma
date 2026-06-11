@@ -150,6 +150,7 @@ model User {
   isBanned      Boolean   @default(false)
   bannedReason  String?
   lastLoginAt   DateTime?
+  sendQuotaOverride Int? // per-user daily send quota override (null = use plan)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -817,4 +818,32 @@ model Setting {
   value     Json
   category  String?  @default("general")
   updatedAt DateTime @updatedAt
+}
+
+// Anti-abuse blocklist: IPs, sender/recipient domains, or full addresses that
+// outbound/inbound mail is rejected against.
+model Blocklist {
+  id        String   @id @default(cuid())
+  kind      String // IP | DOMAIN | EMAIL
+  value     String
+  reason    String?
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@unique([kind, value])
+  @@index([kind])
+}
+
+// Abuse / spam reports for admin triage.
+model AbuseReport {
+  id            String    @id @default(cuid())
+  targetType    String // domain | email | ip | message
+  targetValue   String
+  reason        String
+  reporterEmail String?
+  status        String    @default("OPEN") // OPEN | RESOLVED | DISMISSED
+  createdAt     DateTime  @default(now())
+  resolvedAt    DateTime?
+
+  @@index([status])
 }

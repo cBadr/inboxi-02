@@ -11,6 +11,7 @@ import { verifyDomainDns, runReputationScan, rescanDeliverability } from '@/lib/
 import { encryptSecret } from '@/lib/crypto';
 import { syncHostList, ensureCatchAllMailbox } from '@/lib/haraka';
 import { writeAudit } from '@/lib/audit';
+import { hashPassword } from '@/lib/auth';
 
 export interface ActionResult {
   ok: boolean;
@@ -238,6 +239,47 @@ export async function setUserBanned(formData: FormData): Promise<void> {
     where: { id },
     data: { isBanned: banned, bannedReason: banned ? 'Banned by admin' : null },
   });
+  revalidatePath('/admin/users');
+}
+
+export async function createUser(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  const email = String(formData.get('email') ?? '').trim().toLowerCase();
+  const name = String(formData.get('name') ?? '').trim() || null;
+  const password = String(formData.get('password') ?? '');
+  const roleName = String(formData.get('roleName') ?? '');
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { ok: false, error: 'Invalid email' };
+  if (password.length < 8) return { ok: false, error: 'Password must be ≥ 8 chars' };
+  const exists = await prisma.user.findUnique({ where: { email } });
+  if (exists) return { ok: false, error: 'A user with that email exists' };
+  const role = roleName ? await prisma.role.findUnique({ where: { name: roleName } }) : null;
+  const user = await prisma.user.create({
+    data: { email, name, passwordHash: await hashPassword(password), roleId: role?.id ?? null },
+  });
+  await writeAudit({ actorId: admin.id, action: 'user.create', entity: 'user', entityId: user.id });
+  revalidatePath('/admin/users');
+  return { ok: true };
+}
+
+export async function resetUserPassword(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const id = String(formData.get('id') ?? '');
+  const password = String(formData.get('password') ?? '');
+  if (password.length < 8) return;
+  await prisma.user.update({ where: { id }, data: { passwordHash: await hashPassword(password) } });
+  await writeAudit({ actorId: admin.id, action: 'user.reset_password', entity: 'user', entityId: id });
+  revalidatePath('/admin/users');
+}
+
+export async function setUserQuota(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const id = String(formData.get('id') ?? '');
+  const raw = String(formData.get('quota') ?? '').trim();
+  const quota = raw === '' ? null : Math.max(0, Math.min(1_000_000, Number(raw) || 0));
+  await prisma.user.update({ where: { id }, data: { sendQuotaOverride: quota } });
   revalidatePath('/admin/users');
 }
 

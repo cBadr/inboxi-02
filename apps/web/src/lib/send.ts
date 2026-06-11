@@ -8,6 +8,7 @@ import type { SendMessageInput } from '@inboxi/shared';
 import type { CurrentUser } from './session';
 import { decryptSecret } from './crypto';
 import { getAvailableDomains } from './domains';
+import { blockedReason } from './blocklist';
 
 // SMTP passwords are stored encrypted; fall back to the raw value if it wasn't
 // (e.g. a self-host transport with no auth).
@@ -53,6 +54,12 @@ function todayKey(): string {
 // dailySendQuota across active subscriptions, falling back to the free plan.
 async function sendQuotaFor(user: CurrentUser): Promise<number> {
   if (user.roleName === 'admin') return Number.POSITIVE_INFINITY;
+  // A per-user override always wins (set from Admin → Users).
+  const row = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { sendQuotaOverride: true },
+  });
+  if (row?.sendQuotaOverride != null) return row.sendQuotaOverride;
   const subs = await prisma.subscription.findMany({
     where: { userId: user.id, status: 'ACTIVE' },
     include: { plan: true },
@@ -118,6 +125,25 @@ export async function sendMail(user: CurrentUser, input: SendMessageInput): Prom
   });
   if ((counter?.value ?? 0) >= quota) {
     return { ok: false, status: OutboundStatus.BLOCKED, error: 'send_quota_exceeded' };
+  }
+
+  // Blocklist: refuse to send to a blocked recipient address/domain.
+  const blockReason = await blockedReason(input.to);
+  if (blockReason) {
+    const blocked = await prisma.outboundMessage.create({
+      data: {
+        userId: user.id,
+        mailboxId: mailbox?.id ?? null,
+        fromAddress,
+        toAddress: input.to,
+        subject: input.subject ?? null,
+        bodyText: input.text ?? null,
+        bodyHtml: input.html ?? null,
+        status: OutboundStatus.BLOCKED,
+        lastError: `blocklist: ${blockReason}`,
+      },
+    });
+    return { ok: false, status: OutboundStatus.BLOCKED, outboundId: blocked.id, error: 'blocked_recipient' };
   }
 
   // Anti-abuse
