@@ -59,7 +59,62 @@ export function TempInbox() {
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
+  const [soundOn, setSoundOn] = useState(true);
   const seenIds = useRef<Set<string>>(new Set());
+  const initialized = useRef(false);
+  const soundOnRef = useRef(true);
+  const audioCtx = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem('inboxi.sound');
+      if (v !== null) setSoundOn(v === '1');
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  useEffect(() => {
+    soundOnRef.current = soundOn;
+  }, [soundOn]);
+
+  const toggleSound = () =>
+    setSoundOn((v) => {
+      const n = !v;
+      try {
+        localStorage.setItem('inboxi.sound', n ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return n;
+    });
+
+  // Pleasant two-note chime synthesised with the Web Audio API (no asset file).
+  const playChime = () => {
+    try {
+      const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!Ctx) return;
+      if (!audioCtx.current) audioCtx.current = new Ctx();
+      const ac = audioCtx.current;
+      if (ac.state === 'suspended') void ac.resume();
+      const now = ac.currentTime;
+      [880, 1318.5].forEach((freq, i) => {
+        const osc = ac.createOscillator();
+        const gain = ac.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        osc.connect(gain);
+        gain.connect(ac.destination);
+        const t = now + i * 0.13;
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(0.2, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+        osc.start(t);
+        osc.stop(t + 0.32);
+      });
+    } catch {
+      /* audio blocked — ignore */
+    }
+  };
 
   const address = inbox?.address ?? session?.address ?? null;
   const expiresAt = inbox?.expiresAt ?? session?.expiresAt ?? null;
@@ -111,7 +166,10 @@ export function TempInbox() {
       if (fresh.size) {
         setNewIds(fresh);
         setTimeout(() => setNewIds(new Set()), 1200);
+        // Chime only for messages that arrive after the first load.
+        if (initialized.current && soundOnRef.current) playChime();
       }
+      initialized.current = true;
       setInbox(data);
     } catch {
       /* keep last state */
@@ -143,7 +201,14 @@ export function TempInbox() {
           </span>
           Live inbox
         </span>
-        <span className="text-xs font-semibold uppercase tracking-wider text-white/80">Inboxi</span>
+        <button
+          onClick={toggleSound}
+          title={soundOn ? 'Mute new-mail sound' : 'Unmute new-mail sound'}
+          aria-label={soundOn ? 'Mute sound' : 'Unmute sound'}
+          className="rounded-full bg-white/15 px-2 py-1 text-sm transition hover:bg-white/25"
+        >
+          {soundOn ? '🔔' : '🔕'}
+        </button>
       </div>
 
       {/* address panel */}

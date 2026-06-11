@@ -82,6 +82,23 @@ export function HomeContentEditor({ initial }: { initial: HomeContent }) {
         />
       </Section>
 
+      <Section title="Partners marquee (under trust bar)">
+        <Field label="Heading" value={c.partnersHeading} onChange={(v) => up((d) => void (d.partnersHeading = v))} />
+        <ListEditor
+          items={c.partners}
+          onAdd={() => up((d) => void d.partners.push({ name: 'Partner', logo: '', desc: '', url: '' }))}
+          onRemove={(i) => up((d) => void d.partners.splice(i, 1))}
+          render={(item, i) => (
+            <div className="grid flex-1 gap-1.5 sm:grid-cols-2">
+              <input value={item.name} onChange={(e) => up((d) => void (d.partners[i]!.name = e.target.value))} className={input} placeholder="name" />
+              <input value={item.url} onChange={(e) => up((d) => void (d.partners[i]!.url = e.target.value))} className={input} placeholder="https://site.com" />
+              <input value={item.logo} onChange={(e) => up((d) => void (d.partners[i]!.logo = e.target.value))} className={input} placeholder="logo image URL" />
+              <input value={item.desc} onChange={(e) => up((d) => void (d.partners[i]!.desc = e.target.value))} className={input} placeholder="short description" />
+            </div>
+          )}
+        />
+      </Section>
+
       <Section title="Features">
         <Field label="Heading" value={c.features.heading} onChange={(v) => up((d) => void (d.features.heading = v))} />
         <Field label="Subheading" value={c.features.subheading} onChange={(v) => up((d) => void (d.features.subheading = v))} />
@@ -95,6 +112,18 @@ export function HomeContentEditor({ initial }: { initial: HomeContent }) {
               <div className="space-y-1">
                 <input value={item.title} onChange={(e) => up((d) => void (d.features.items[i]!.title = e.target.value))} className={input} placeholder="title" />
                 <input value={item.desc} onChange={(e) => up((d) => void (d.features.items[i]!.desc = e.target.value))} className={input} placeholder="description" />
+                <div className="flex gap-2">
+                  <input value={item.category ?? ''} onChange={(e) => up((d) => void (d.features.items[i]!.category = e.target.value))} className={input} placeholder="category (column)" />
+                  <select
+                    value={item.tier ?? ''}
+                    onChange={(e) => up((d) => void (d.features.items[i]!.tier = (e.target.value || undefined) as 'free' | 'pro' | undefined))}
+                    className={`${input} w-24`}
+                  >
+                    <option value="">—</option>
+                    <option value="free">free</option>
+                    <option value="pro">pro</option>
+                  </select>
+                </div>
               </div>
             </div>
           )}

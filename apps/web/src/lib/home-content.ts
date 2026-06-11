@@ -13,9 +13,16 @@ export interface Feature {
   title: string;
   desc: string;
   tier?: 'free' | 'pro'; // shown as a badge to highlight what's free
+  category?: string; // groups features into columns
 }
 export interface Social {
   platform: string; // twitter | telegram | github | instagram | facebook | linkedin | youtube | discord | tiktok
+  url: string;
+}
+export interface Partner {
+  name: string;
+  logo: string; // image URL
+  desc: string;
   url: string;
 }
 export interface Step {
@@ -42,6 +49,8 @@ export interface HomeContent {
     trustNote: string;
   };
   trustBar: string[];
+  partnersHeading: string;
+  partners: Partner[];
   features: { heading: string; subheading: string; items: Feature[] };
   steps: { heading: string; subheading: string; items: Step[] };
   stats: Stat[];
@@ -65,26 +74,39 @@ export const DEFAULT_HOME: HomeContent = {
     trustNote: 'No credit card • No signup • Works in seconds',
   },
   trustBar: ['Instant addresses', 'Auto-expiring', 'OTP auto-detect', 'Custom domains', 'Developer API'],
+  partnersHeading: 'Trusted by teams & builders',
+  partners: [
+    { name: 'Northwind', logo: 'https://placehold.co/120x40/eef2ff/4f46e5?text=Northwind', desc: 'Scaled signups with disposable QA inboxes.', url: '#' },
+    { name: 'Acme Labs', logo: 'https://placehold.co/120x40/ecfeff/0891b2?text=Acme+Labs', desc: 'Automated email testing via the API.', url: '#' },
+    { name: 'Pixelware', logo: 'https://placehold.co/120x40/f5f3ff/7c3aed?text=Pixelware', desc: 'OTP flows verified at scale.', url: '#' },
+    { name: 'Bytecraft', logo: 'https://placehold.co/120x40/eef2ff/4f46e5?text=Bytecraft', desc: 'Custom domains for client mail.', url: '#' },
+    { name: 'Lumen', logo: 'https://placehold.co/120x40/ecfeff/0891b2?text=Lumen', desc: 'Privacy-first onboarding.', url: '#' },
+  ],
   features: {
     heading: 'A complete mail platform — not just throwaway addresses',
     subheading: 'Everything below is built in. Start free, upgrade only when you outgrow it.',
     items: [
-      { icon: '⚡', title: 'Instant & anonymous', desc: 'A working inbox the moment you arrive — no forms, no waiting, no tracking.', tier: 'free' },
-      { icon: '♾️', title: 'Unlimited receiving', desc: 'Receive as many emails as you want — no caps on incoming mail.', tier: 'free' },
-      { icon: '🔑', title: 'OTP / code auto-extract', desc: 'Verification codes are detected and highlighted instantly — copy in one tap.', tier: 'free' },
-      { icon: '🔒', title: 'Privacy guaranteed', desc: 'Addresses self-destruct on a timer and your real inbox never sees the spam.', tier: 'free' },
-      { icon: '🔎', title: 'Search your inbox', desc: 'Full-text search across senders, subjects, and message bodies.', tier: 'free' },
-      { icon: '🌐', title: 'Multiple custom domains', desc: 'Connect unlimited domains and use any address on each of them.', tier: 'pro' },
-      { icon: '🎲', title: 'Random send & receive', desc: 'Send and receive from random addresses on your custom domains automatically.', tier: 'pro' },
-      { icon: '🛡️', title: 'High Trust Score', desc: 'Self-healing SPF/DKIM/DMARC + reputation monitoring keep you out of spam.', tier: 'pro' },
-      { icon: '📤', title: 'Send via SMTP', desc: 'Authenticated outbound sending from your own addresses, DKIM-signed.', tier: 'pro' },
-      { icon: '📥', title: 'Read via IMAP', desc: 'Connect any mail client — your messages, your apps, your way.', tier: 'pro' },
-      { icon: '↩️', title: 'Reply & compose', desc: 'Full reply, forward, variables, and scheduled sending built in.', tier: 'pro' },
-      { icon: '📎', title: 'Attachment management', desc: 'Receive, preview, download, and send attachments with ease.', tier: 'free' },
-      { icon: '📱', title: 'SMTP → SMS', desc: 'Turn incoming email into SMS alerts so you never miss a code.', tier: 'pro' },
-      { icon: '🧩', title: 'Developer API & webhooks', desc: 'Automate inboxes and messages with API keys and real-time webhooks.', tier: 'pro' },
-      { icon: '🤖', title: 'Telegram notifications', desc: 'Get instant alerts in Telegram the moment mail arrives.', tier: 'pro' },
-      { icon: '🗂️', title: 'Permanent mailboxes', desc: 'Keep your inbox and history forever — no more vanishing messages.', tier: 'pro' },
+      // Privacy & speed
+      { category: 'Privacy & speed', icon: '⚡', title: 'Instant & anonymous', desc: 'A working inbox the moment you arrive — no forms, no waiting, no tracking.', tier: 'free' },
+      { category: 'Privacy & speed', icon: '♾️', title: 'Unlimited receiving', desc: 'Receive as many emails as you want — no caps on incoming mail.', tier: 'free' },
+      { category: 'Privacy & speed', icon: '🔑', title: 'OTP / code auto-extract', desc: 'Verification codes are detected and highlighted instantly — copy in one tap.', tier: 'free' },
+      { category: 'Privacy & speed', icon: '🔒', title: 'Privacy guaranteed', desc: 'Addresses self-destruct on a timer and your real inbox never sees the spam.', tier: 'free' },
+      { category: 'Privacy & speed', icon: '🔎', title: 'Inbox search', desc: 'Full-text search across senders, subjects, and message bodies.', tier: 'free' },
+      { category: 'Privacy & speed', icon: '📎', title: 'Attachments', desc: 'Receive, preview, download, and send attachments with ease.', tier: 'free' },
+      // Domains & sending
+      { category: 'Domains & sending', icon: '🌐', title: 'Multiple custom domains', desc: 'Connect unlimited domains and use any address on each of them.', tier: 'pro' },
+      { category: 'Domains & sending', icon: '🎲', title: 'Random send & receive', desc: 'Send and receive from random addresses on your custom domains automatically.', tier: 'pro' },
+      { category: 'Domains & sending', icon: '🛡️', title: 'High Trust Score', desc: 'Self-healing SPF/DKIM/DMARC + reputation monitoring keep you out of spam.', tier: 'pro' },
+      { category: 'Domains & sending', icon: '📤', title: 'Send via SMTP', desc: 'Authenticated outbound sending from your own addresses, DKIM-signed.', tier: 'pro' },
+      { category: 'Domains & sending', icon: '↩️', title: 'Reply & compose', desc: 'Full reply, forward, variables, and scheduled sending built in.', tier: 'pro' },
+      { category: 'Domains & sending', icon: '📱', title: 'SMTP → SMS', desc: 'Turn incoming email into SMS alerts so you never miss a code.', tier: 'pro' },
+      // Power & integrations
+      { category: 'Power & integrations', icon: '📥', title: 'Read via IMAP', desc: 'Connect any mail client — your messages, your apps, your way.', tier: 'pro' },
+      { category: 'Power & integrations', icon: '🧩', title: 'Developer API & webhooks', desc: 'Automate inboxes and messages with API keys and real-time webhooks.', tier: 'pro' },
+      { category: 'Power & integrations', icon: '🤖', title: 'Telegram notifications', desc: 'Get instant alerts in Telegram the moment mail arrives.', tier: 'pro' },
+      { category: 'Power & integrations', icon: '🗂️', title: 'Permanent mailboxes', desc: 'Keep your inbox and history forever — no more vanishing messages.', tier: 'pro' },
+      { category: 'Power & integrations', icon: '🔔', title: 'Sound alerts', desc: 'Hear a chime the instant a new message lands in your inbox.', tier: 'free' },
+      { category: 'Power & integrations', icon: '🌍', title: 'Web, IMAP & API access', desc: 'Reach your mail however you like — webmail, mail clients, or code.', tier: 'pro' },
     ],
   },
   freePerks: {

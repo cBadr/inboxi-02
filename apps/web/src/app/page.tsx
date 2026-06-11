@@ -3,7 +3,8 @@ import { AdSlot } from '@/components/AdSlot';
 import { Reveal } from '@/components/Reveal';
 import { CountUp } from '@/components/CountUp';
 import { SocialLinks } from '@/components/SocialLinks';
-import { getHomeContent } from '@/lib/home-content';
+import { PartnersMarquee } from '@/components/PartnersMarquee';
+import { getHomeContent, type Feature } from '@/lib/home-content';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,6 +12,18 @@ export const dynamic = 'force-dynamic';
 // (Admin → CMS → Homepage) with rich defaults, so it always renders.
 export default async function HomePage() {
   const c = await getHomeContent();
+
+  // Group features into columns by category (preserving first-seen order).
+  const featureColumns: Array<{ title: string; items: Feature[] }> = [];
+  for (const f of c.features.items) {
+    const cat = f.category || 'Features';
+    let col = featureColumns.find((x) => x.title === cat);
+    if (!col) {
+      col = { title: cat, items: [] };
+      featureColumns.push(col);
+    }
+    col.items.push(f);
+  }
 
   return (
     <div className="overflow-hidden">
@@ -43,7 +56,7 @@ export default async function HomePage() {
               <div className="mt-7 flex flex-wrap items-center gap-3">
                 <a
                   href={c.hero.primaryCta.href}
-                  className="inline-flex items-center gap-2 rounded-xl bg-brand px-6 py-3 text-base font-semibold text-white shadow-lg shadow-brand/25 transition hover:-translate-y-0.5 hover:bg-brand-dark"
+                  className="cta-shine inline-flex items-center gap-2 rounded-xl bg-brand px-6 py-3 text-base font-semibold text-white shadow-lg shadow-brand/25 transition hover:-translate-y-0.5 hover:bg-brand-dark"
                 >
                   {c.hero.primaryCta.label} <span aria-hidden>→</span>
                 </a>
@@ -78,6 +91,9 @@ export default async function HomePage() {
             ))}
           </div>
         </div>
+
+        {/* partners marquee */}
+        <PartnersMarquee heading={c.partnersHeading} partners={c.partners} />
       </section>
 
       {/* ── Features ───────────────────────────────────────── */}
@@ -86,26 +102,41 @@ export default async function HomePage() {
           <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">{c.features.heading}</h2>
           <p className="mt-3 text-lg text-gray-600">{c.features.subheading}</p>
         </Reveal>
-        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {c.features.items.map((f, i) => (
-            <Reveal key={f.title} delay={(i % 3) * 60}>
-              <div className="group relative h-full rounded-2xl border bg-white p-5 transition hover:-translate-y-1 hover:border-brand/30 hover:shadow-lg">
-                {f.tier && (
-                  <span
-                    className={`absolute right-4 top-4 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                      f.tier === 'free'
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-brand/10 text-brand'
-                    }`}
-                  >
-                    {f.tier}
-                  </span>
-                )}
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-brand/10 to-accent/10 text-2xl transition group-hover:scale-110">
-                  {f.icon}
+        <div className="mt-12 grid gap-5 lg:grid-cols-3">
+          {featureColumns.map((col, ci) => (
+            <Reveal key={col.title} delay={ci * 90}>
+              <div className="h-full rounded-2xl border bg-white p-5 shadow-sm">
+                <div className="mb-3 flex items-center gap-2 border-b pb-3">
+                  <span className="text-xs font-bold uppercase tracking-wider text-brand">{col.title}</span>
+                  <span className="text-xs text-gray-300">{col.items.length}</span>
                 </div>
-                <h3 className="mt-3 text-base font-semibold text-gray-900">{f.title}</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-gray-600">{f.desc}</p>
+                <ul className="space-y-1">
+                  {col.items.map((f) => (
+                    <li key={f.title} className="group/feat rounded-xl px-2 py-2 transition hover:bg-brand/5">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-brand/10 to-accent/10 text-lg transition group-hover/feat:scale-110">
+                          {f.icon}
+                        </span>
+                        <span className="flex-1 text-sm font-semibold text-gray-900">{f.title}</span>
+                        {f.tier && (
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
+                              f.tier === 'free' ? 'bg-green-100 text-green-700' : 'bg-brand/10 text-brand'
+                            }`}
+                          >
+                            {f.tier}
+                          </span>
+                        )}
+                      </div>
+                      {/* hover-reveal details */}
+                      <div className="grid grid-rows-[0fr] transition-all duration-300 group-hover/feat:grid-rows-[1fr]">
+                        <p className="overflow-hidden pl-12 text-xs leading-relaxed text-gray-500 opacity-0 transition-opacity duration-300 group-hover/feat:pt-1 group-hover/feat:opacity-100">
+                          {f.desc}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </Reveal>
           ))}
@@ -185,18 +216,16 @@ export default async function HomePage() {
       {/* ── Pricing CTA ────────────────────────────────────── */}
       <section className="mx-auto max-w-6xl px-4 py-20">
         <Reveal>
-          <div className="relative overflow-hidden rounded-3xl border bg-white p-10 text-center shadow-sm sm:p-14">
-            <div aria-hidden className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-accent/10 blur-3xl" />
-            <div aria-hidden className="absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-brand/10 blur-3xl" />
+          <div className="cta-aurora rounded-3xl border bg-white/70 p-10 text-center shadow-lg backdrop-blur sm:p-14">
             <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">{c.pricingCta.heading}</h2>
-            <p className="mx-auto mt-3 max-w-2xl text-lg text-gray-600">{c.pricingCta.subheading}</p>
+            <p className="mx-auto mt-3 max-w-2xl text-lg text-gray-700">{c.pricingCta.subheading}</p>
             <a
               href={c.pricingCta.cta.href}
-              className="mt-7 inline-flex items-center gap-2 rounded-xl bg-brand px-6 py-3 text-base font-semibold text-white shadow-lg shadow-brand/25 transition hover:-translate-y-0.5 hover:bg-brand-dark"
+              className="cta-shine mt-7 inline-flex items-center gap-2 rounded-xl bg-brand px-6 py-3 text-base font-semibold text-white shadow-lg shadow-brand/25 transition hover:-translate-y-0.5 hover:bg-brand-dark"
             >
               {c.pricingCta.cta.label} <span aria-hidden>→</span>
             </a>
-            <p className="mt-3 text-sm text-gray-400">{c.pricingCta.note}</p>
+            <p className="mt-3 text-sm text-gray-500">{c.pricingCta.note}</p>
           </div>
         </Reveal>
       </section>
@@ -227,8 +256,8 @@ export default async function HomePage() {
       </section>
 
       {/* ── Final CTA ──────────────────────────────────────── */}
-      <section className="border-t bg-white">
-        <div className="mx-auto max-w-4xl px-4 py-20 text-center">
+      <section className="cta-aurora border-t bg-gradient-to-br from-white to-brand/5">
+        <div className="mx-auto max-w-4xl px-4 py-24 text-center">
           <Reveal>
             <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">{c.finalCta.heading}</h2>
             <p className="mx-auto mt-3 max-w-xl text-lg text-gray-600">{c.finalCta.subheading}</p>
