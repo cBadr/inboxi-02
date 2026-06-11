@@ -50,6 +50,43 @@ body {
   transform: none;
 }
 
+/* Rotating gradient border frame (premium "wow" container). */
+@keyframes spin360 {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.gradient-frame {
+  position: relative;
+  border-radius: 26px;
+  padding: 2px;
+  overflow: hidden;
+  isolation: isolate;
+}
+.gradient-frame::before {
+  content: '';
+  position: absolute;
+  inset: -60%;
+  z-index: -1;
+  background: conic-gradient(from 0deg, #4f46e5, #06b6d4, #818cf8, #22d3ee, #4f46e5);
+  animation: spin360 9s linear infinite;
+}
+
+/* Radar sweep used in the empty inbox state. */
+@keyframes radar-pulse {
+  0% {
+    transform: scale(0.3);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+.radar-ring {
+  animation: radar-pulse 2.4s ease-out infinite;
+}
+
 /* Skeleton shimmer. */
 .skeleton {
   position: relative;
