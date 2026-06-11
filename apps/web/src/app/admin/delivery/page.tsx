@@ -1,6 +1,8 @@
+import Link from 'next/link';
 import { prisma } from '@inboxi/db';
 import { requireAdmin } from '@/lib/session';
 import { ModuleActionForm } from '@/components/ModuleActionForm';
+import { getOutboundStats, getTransportStats } from '@/lib/sending-stats';
 import {
   createTransport,
   toggleTransport,
@@ -14,13 +16,17 @@ export const dynamic = 'force-dynamic';
 
 export default async function AdminDeliveryPage() {
   await requireAdmin();
-  const [transports, domains] = await Promise.all([
+  const [transports, domains, stats, transportStats] = await Promise.all([
     prisma.deliveryTransport.findMany({ orderBy: [{ isDefault: 'desc' }, { name: 'asc' }] }),
     prisma.domain.findMany({
       orderBy: { name: 'asc' },
       include: { deliveryConfig: { include: { transport: true } } },
     }),
+    getOutboundStats(),
+    getTransportStats(),
   ]);
+
+  const failPct = Math.round(stats.failureRate * 100);
 
   return (
     <div className="space-y-8">
@@ -31,6 +37,67 @@ export default async function AdminDeliveryPage() {
           SMTP relay. Pick a global default and override per domain.
         </p>
       </div>
+
+      {/* Delivery health */}
+      <section>
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-sm font-semibold">Delivery health</h2>
+          <Link href="/admin/outbox" className="text-xs text-brand hover:underline">
+            View Outbox →
+          </Link>
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="rounded-xl border bg-white px-4 py-3">
+            <div className="text-xs uppercase tracking-wide text-gray-400">Sent (total)</div>
+            <div className="mt-1 text-2xl font-bold text-green-600">{stats.byStatus.SENT ?? 0}</div>
+          </div>
+          <div className="rounded-xl border bg-white px-4 py-3">
+            <div className="text-xs uppercase tracking-wide text-gray-400">Failed</div>
+            <div className="mt-1 text-2xl font-bold text-red-600">{stats.byStatus.FAILED ?? 0}</div>
+          </div>
+          <div className="rounded-xl border bg-white px-4 py-3">
+            <div className="text-xs uppercase tracking-wide text-gray-400">Sent 24h</div>
+            <div className="mt-1 text-2xl font-bold text-gray-900">{stats.last24hTotal}</div>
+          </div>
+          <div className="rounded-xl border bg-white px-4 py-3">
+            <div className="text-xs uppercase tracking-wide text-gray-400">24h failure</div>
+            <div className={`mt-1 text-2xl font-bold ${failPct >= 20 ? 'text-red-600' : failPct >= 5 ? 'text-amber-600' : 'text-green-600'}`}>
+              {failPct}%
+            </div>
+          </div>
+        </div>
+        {transportStats.length > 0 && (
+          <div className="mt-3 overflow-hidden rounded-xl border bg-white">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-left text-xs uppercase text-gray-400">
+                <tr>
+                  <th className="p-3">Transport</th>
+                  <th className="p-3">Sent</th>
+                  <th className="p-3">Failed</th>
+                  <th className="p-3">Success rate</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {transportStats.map((t) => {
+                  const pct = Math.round(t.successRate * 100);
+                  return (
+                    <tr key={t.transportType}>
+                      <td className="p-3 font-medium">{t.transportType}</td>
+                      <td className="p-3">{t.sent}</td>
+                      <td className="p-3">{t.failed}</td>
+                      <td className="p-3">
+                        <span className={pct >= 95 ? 'text-green-600' : pct >= 80 ? 'text-amber-600' : 'text-red-600'}>
+                          {pct}%
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       {/* New transport */}
       <section className="max-w-2xl">

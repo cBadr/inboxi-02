@@ -399,6 +399,8 @@ model OutboundMessage {
   fromAddress String
   toAddress   String
   subject     String?
+  bodyText    String? // stored so the Outbox can preview + resend
+  bodyHtml    String?
   status      OutboundStatus @default(QUEUED)
 
   transportType     TransportType?
