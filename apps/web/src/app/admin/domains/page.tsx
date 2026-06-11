@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { prisma } from '@inboxi/db';
+import { prisma, type Prisma } from '@inboxi/db';
 import { requireAdmin } from '@/lib/session';
 import { NewDomainForm } from '@/components/NewDomainForm';
 import { bulkProvisionAll, bulkRecheckAll } from '../domain-actions';
@@ -30,22 +30,46 @@ const AVAILABILITY: Array<{ value: string; label: string }> = [
   { value: 'DISABLED', label: 'Disabled' },
 ];
 
-function barColor(score: number): string {
-  if (score >= 80) return 'bg-green-500';
-  if (score >= 50) return 'bg-amber-500';
-  return 'bg-red-500';
+const SORTS: Record<string, Prisma.DomainOrderByWithRelationInput> = {
+  newest: { createdAt: 'desc' },
+  oldest: { createdAt: 'asc' },
+  name: { name: 'asc' },
+  deliverability: { deliverabilityScore: { sort: 'desc', nulls: 'last' } },
+  inbox: { inboxScore: { sort: 'desc', nulls: 'last' } },
+};
+
+function barColor(s: number): string {
+  return s >= 80 ? 'bg-green-500' : s >= 50 ? 'bg-amber-500' : 'bg-red-500';
 }
-function textColor(score: number): string {
-  if (score >= 80) return 'text-green-600';
-  if (score >= 50) return 'text-amber-600';
-  return 'text-red-600';
+function textColor(s: number): string {
+  return s >= 80 ? 'text-green-600' : s >= 50 ? 'text-amber-600' : 'text-red-600';
 }
 
-export default async function AdminDomainsPage() {
+export default async function AdminDomainsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; dns?: string; avail?: string; active?: string; sort?: string }>;
+}) {
   await requireAdmin();
-  const [domains, groups] = await Promise.all([
+  const sp = await searchParams;
+  const q = (sp.q ?? '').trim();
+  const dns = sp.dns ?? '';
+  const avail = sp.avail ?? '';
+  const active = sp.active ?? '';
+  const sort = SORTS[sp.sort ?? 'newest'] ? (sp.sort ?? 'newest') : 'newest';
+
+  const where: Prisma.DomainWhereInput = {
+    ...(q ? { name: { contains: q, mode: 'insensitive' } } : {}),
+    ...(dns ? { dnsStatus: dns as Prisma.DomainWhereInput['dnsStatus'] } : {}),
+    ...(avail ? { availability: avail as Prisma.DomainWhereInput['availability'] } : {}),
+    ...(active === 'active' ? { isActive: true } : {}),
+    ...(active === 'inactive' ? { isActive: false } : {}),
+  };
+
+  const [domains, groups, agg, totalAll, activeAll, attention] = await Promise.all([
     prisma.domain.findMany({
-      orderBy: { createdAt: 'desc' },
+      where,
+      orderBy: SORTS[sort],
       include: {
         _count: { select: { mailboxes: true } },
         trustScores: { orderBy: { computedAt: 'desc' }, take: 1 },
@@ -58,244 +82,230 @@ export default async function AdminDomainsPage() {
       },
     }),
     prisma.group.findMany({ orderBy: { name: 'asc' }, include: { _count: { select: { members: true } } } }),
+    prisma.domain.aggregate({ _avg: { deliverabilityScore: true } }),
+    prisma.domain.count(),
+    prisma.domain.count({ where: { isActive: true } }),
+    prisma.domain.count({ where: { dnsStatus: { in: ['FAILED', 'PENDING'] } } }),
   ]);
 
+  const avgDeliver = Math.round(agg._avg.deliverabilityScore ?? 0);
+  const filtered = q || dns || avail || active;
+
   return (
-    <div>
+    <div className="space-y-5">
+      {/* header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Domains &amp; DNS</h1>
           <p className="mt-1 max-w-2xl text-sm text-gray-500">
-            Add domains, automate Cloudflare DNS, verify records, assign access, and monitor
-            deliverability &amp; inbox placement.
+            Automate Cloudflare DNS, verify records, assign access, and monitor deliverability.
           </p>
         </div>
         <div className="flex gap-2">
           <form action={bulkProvisionAll}>
-            <button className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50">
-              Provision all
-            </button>
+            <button className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50">Provision all</button>
           </form>
           <form action={bulkRecheckAll}>
-            <button className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50">
-              Re-check all
-            </button>
+            <button className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50">Re-check all</button>
           </form>
         </div>
       </div>
 
-      {/* Add domain */}
-      <div className="mt-5 rounded-xl border bg-white p-4">
-        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
-          Add a new domain
-        </div>
-        <NewDomainForm />
+      {/* summary */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <SummaryCard label="Domains" value={totalAll} />
+        <SummaryCard label="Active" value={activeAll} />
+        <SummaryCard label="Avg deliverability" value={`${avgDeliver}%`} tone={avgDeliver >= 80 ? 'good' : avgDeliver >= 50 ? 'warn' : 'bad'} />
+        <SummaryCard label="Needs attention" value={attention} tone={attention > 0 ? 'warn' : 'good'} />
       </div>
 
-      {/* Domain cards */}
-      <div className="mt-5 space-y-4">
+      {/* add domain (collapsible) */}
+      <details className="rounded-xl border bg-white">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-gray-700">
+          + Add a new domain
+        </summary>
+        <div className="border-t px-4 py-4">
+          <NewDomainForm />
+        </div>
+      </details>
+
+      {/* toolbar: search + filters + sort */}
+      <form action="/admin/domains" className="flex flex-wrap items-center gap-2 rounded-xl border bg-white p-3">
+        <input
+          name="q"
+          defaultValue={q}
+          placeholder="Search domain…"
+          className="w-48 rounded-lg border px-3 py-1.5 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+        />
+        <select name="dns" defaultValue={dns} className="rounded-lg border px-2 py-1.5 text-sm">
+          <option value="">DNS: any</option>
+          {['VERIFIED', 'VERIFYING', 'PENDING', 'FAILED'].map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+        <select name="avail" defaultValue={avail} className="rounded-lg border px-2 py-1.5 text-sm">
+          <option value="">Availability: any</option>
+          {AVAILABILITY.map((a) => (
+            <option key={a.value} value={a.value}>{a.label}</option>
+          ))}
+        </select>
+        <select name="active" defaultValue={active} className="rounded-lg border px-2 py-1.5 text-sm">
+          <option value="">State: any</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+        <select name="sort" defaultValue={sort} className="rounded-lg border px-2 py-1.5 text-sm">
+          <option value="newest">Newest</option>
+          <option value="oldest">Oldest</option>
+          <option value="name">Name A–Z</option>
+          <option value="deliverability">Best deliverability</option>
+          <option value="inbox">Best inbox</option>
+        </select>
+        <button className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50">Apply</button>
+        {filtered && (
+          <a href="/admin/domains" className="text-xs text-gray-400 hover:underline">clear</a>
+        )}
+        <span className="ml-auto text-sm text-gray-400">{domains.length} shown</span>
+      </form>
+
+      {/* rows */}
+      <div className="space-y-2">
         {domains.length === 0 && (
           <div className="rounded-xl border border-dashed bg-white p-10 text-center text-sm text-gray-500">
-            No domains yet — add one above.
+            {filtered ? 'No domains match your filters.' : 'No domains yet — add one above.'}
           </div>
         )}
         {domains.map((d) => {
           const trust = d.trustScores[0];
           const ageDays = Math.floor((Date.now() - new Date(d.createdAt).getTime()) / 86_400_000);
-          const deliver = d.deliverabilityScore;
-          const inbox = d.inboxScore;
           const userAssignments = d.assignments.filter((a) => a.user);
           const groupAssignments = d.assignments.filter((a) => a.group);
-          const memberReach = groupAssignments.reduce(
-            (s, a) => s + (a.group?._count.members ?? 0),
-            userAssignments.length,
-          );
+          const reach = groupAssignments.reduce((s, a) => s + (a.group?._count.members ?? 0), userAssignments.length);
 
           return (
             <div key={d.id} className="overflow-hidden rounded-xl border bg-white">
-              {/* header */}
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
-                <div className="flex items-center gap-3">
-                  <Link
-                    href={`/admin/domains/${d.id}`}
-                    className="font-mono text-base font-semibold text-gray-900 hover:text-brand"
-                  >
-                    {d.name}
-                  </Link>
-                  <span
-                    className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-500"
-                    title={`Added ${new Date(d.createdAt).toLocaleDateString()}`}
-                  >
-                    {ageDays}d old
-                  </span>
-                  <span className={`rounded px-2 py-0.5 text-[11px] ${DNS_BADGE[d.dnsStatus] ?? ''}`}>
-                    DNS {d.dnsStatus}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {/* availability */}
-                  <form action={setDomainAvailability} className="flex items-center gap-1">
-                    <input type="hidden" name="id" value={d.id} />
-                    <select
-                      name="availability"
-                      defaultValue={d.availability}
-                      className="rounded border px-2 py-1 text-xs"
-                    >
-                      {AVAILABILITY.map((a) => (
-                        <option key={a.value} value={a.value}>
-                          {a.label}
-                        </option>
-                      ))}
-                    </select>
-                    <button className="rounded border px-2 py-1 text-xs hover:bg-gray-50">Set</button>
-                  </form>
-                  {/* active toggle */}
-                  <form action={toggleDomainActive}>
-                    <input type="hidden" name="id" value={d.id} />
-                    <button
-                      className={`rounded px-2 py-1 text-xs ${d.isActive ? 'bg-green-50 text-green-700 hover:bg-green-100' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
-                    >
-                      {d.isActive ? '● Active' : '○ Inactive'}
-                    </button>
-                  </form>
-                </div>
-              </div>
-
-              {/* metrics */}
-              <div className="grid gap-4 px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
-                <ScoreMeter label="Deliverability" score={deliver} suffix="%" />
-                <ScoreMeter label="Inbox placement" score={inbox} suffix="%" />
-                <div className="rounded-lg border p-3">
-                  <div className="text-[11px] uppercase tracking-wide text-gray-400">Trust score</div>
-                  <div className="mt-1 flex items-end gap-2">
-                    <span className={`text-2xl font-bold ${trust ? textColor(trust.score) : 'text-gray-300'}`}>
-                      {trust ? Math.round(trust.score) : '—'}
+              {/* main row */}
+              <div className="flex flex-wrap items-center gap-4 px-4 py-3">
+                {/* identity */}
+                <div className="min-w-[200px] flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link href={`/admin/domains/${d.id}`} className="font-mono text-sm font-semibold text-gray-900 hover:text-brand">
+                      {d.name}
+                    </Link>
+                    <span className={`rounded px-1.5 py-0.5 text-[10px] ${DNS_BADGE[d.dnsStatus] ?? 'bg-gray-100'}`}>
+                      {d.dnsStatus}
                     </span>
-                    <span className="pb-1 text-xs text-gray-400">/ 100</span>
+                    <span className={`text-[10px] ${d.isActive ? 'text-green-600' : 'text-gray-400'}`}>
+                      ● {d.isActive ? 'active' : 'inactive'}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-gray-400">
+                    <span>{ageDays}d old</span>
+                    <span>·</span>
+                    <span>{AVAILABILITY.find((a) => a.value === d.availability)?.label ?? d.availability}</span>
+                    <span>·</span>
+                    <span>{reach} user(s)</span>
                   </div>
                 </div>
-                <div className="flex flex-col justify-between rounded-lg border p-3">
-                  <div>
-                    <div className="text-[11px] uppercase tracking-wide text-gray-400">
-                      Mailboxes
-                    </div>
-                    <div className="mt-1 text-2xl font-bold text-gray-900">
-                      {d._count.mailboxes}
-                    </div>
-                  </div>
-                  <div className="mt-1 text-[11px] text-gray-400">
-                    {d.deliverabilityCheckedAt
-                      ? `checked ${timeAgo(d.deliverabilityCheckedAt)}`
-                      : 'never checked'}
-                  </div>
+
+                {/* metrics */}
+                <div className="flex items-center gap-4">
+                  <Meter label="Deliv." score={d.deliverabilityScore} />
+                  <Meter label="Inbox" score={d.inboxScore} />
+                  <MiniStat label="Trust" value={trust ? Math.round(trust.score) : null} />
+                  <MiniStat label="Boxes" value={d._count.mailboxes} plain />
+                </div>
+
+                {/* actions */}
+                <div className="flex items-center gap-1.5">
+                  <form action={rescanDomain}>
+                    <input type="hidden" name="id" value={d.id} />
+                    <button title="Re-check deliverability" className="rounded-lg border px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-50">
+                      ↻
+                    </button>
+                  </form>
+                  <form action={autoFixDns}>
+                    <input type="hidden" name="id" value={d.id} />
+                    <button title="Fix DNS automatically" className="rounded-lg border px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-50">
+                      ⚙ Fix
+                    </button>
+                  </form>
+                  <Link href={`/admin/domains/${d.id}`} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-dark">
+                    Manage
+                  </Link>
                 </div>
               </div>
 
-              {/* users / assignments */}
-              <div className="border-t bg-gray-50/40 px-5 py-4">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                    Users &amp; access
-                  </span>
-                  <span className="text-[11px] text-gray-400">~{memberReach} user(s) reached</span>
-                </div>
-
-                {d.assignments.length === 0 ? (
-                  <p className="mb-3 text-sm text-gray-400">
-                    No users assigned — domain is {d.availability === 'FREE' ? 'open to everyone (Free)' : 'unassigned'}.
-                  </p>
-                ) : (
-                  <ul className="mb-3 flex flex-wrap gap-2">
-                    {d.assignments.map((a) => (
-                      <li
-                        key={a.id}
-                        className="flex items-center gap-1.5 rounded-full border bg-white px-2.5 py-1 text-xs"
-                      >
-                        {a.group ? (
-                          <span className="inline-flex items-center gap-1 text-purple-700">
-                            <GroupIcon /> {a.group.name}
-                            <span className="text-gray-400">({a.group._count.members})</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-gray-700">
-                            <UserIcon /> {a.user?.email}
-                          </span>
-                        )}
-                        <form action={unassignDomain}>
-                          <input type="hidden" name="assignmentId" value={a.id} />
-                          <input type="hidden" name="domainId" value={d.id} />
-                          <button className="text-gray-300 hover:text-red-500" title="Remove">
-                            ✕
-                          </button>
-                        </form>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-
-                {/* assign controls */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <form action={assignDomain} className="flex items-center gap-1">
-                    <input type="hidden" name="domainId" value={d.id} />
-                    <input
-                      name="email"
-                      type="email"
-                      placeholder="user@email.com"
-                      className="w-52 rounded border px-2 py-1 text-xs"
-                    />
-                    <button className="rounded bg-brand px-2.5 py-1 text-xs text-white hover:bg-brand-dark">
-                      Assign user
-                    </button>
-                  </form>
-
-                  {groups.length > 0 && (
-                    <form action={assignDomainToGroup} className="flex items-center gap-1">
-                      <input type="hidden" name="domainId" value={d.id} />
-                      <select name="groupId" className="rounded border px-2 py-1 text-xs" defaultValue="">
-                        <option value="" disabled>
-                          Select group…
-                        </option>
-                        {groups.map((g) => (
-                          <option key={g.id} value={g.id}>
-                            {g.name} ({g._count.members})
-                          </option>
+              {/* expandable: settings + access */}
+              <details className="border-t">
+                <summary className="cursor-pointer bg-gray-50/50 px-4 py-2 text-xs text-gray-500 hover:bg-gray-50">
+                  Settings &amp; access
+                </summary>
+                <div className="space-y-3 px-4 py-3">
+                  {/* quick settings */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <form action={setDomainAvailability} className="flex items-center gap-1">
+                      <input type="hidden" name="id" value={d.id} />
+                      <select name="availability" defaultValue={d.availability} className="rounded border px-2 py-1 text-xs">
+                        {AVAILABILITY.map((a) => (
+                          <option key={a.value} value={a.value}>{a.label}</option>
                         ))}
                       </select>
-                      <button className="rounded bg-purple-600 px-2.5 py-1 text-xs text-white hover:bg-purple-700">
-                        Assign group
+                      <button className="rounded border px-2 py-1 text-xs hover:bg-gray-50">Set availability</button>
+                    </form>
+                    <form action={toggleDomainActive}>
+                      <input type="hidden" name="id" value={d.id} />
+                      <button className={`rounded px-2 py-1 text-xs ${d.isActive ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {d.isActive ? 'Deactivate' : 'Activate'}
                       </button>
                     </form>
-                  )}
-                </div>
-              </div>
+                    <form action={deleteDomain} className="ml-auto">
+                      <input type="hidden" name="id" value={d.id} />
+                      <button className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50">Delete</button>
+                    </form>
+                  </div>
 
-              {/* actions footer */}
-              <div className="flex flex-wrap items-center gap-2 border-t px-5 py-3">
-                <form action={rescanDomain}>
-                  <input type="hidden" name="id" value={d.id} />
-                  <button className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
-                    <RefreshIcon /> Re-check deliverability
-                  </button>
-                </form>
-                <form action={autoFixDns}>
-                  <input type="hidden" name="id" value={d.id} />
-                  <button className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
-                    <WrenchIcon /> Fix DNS
-                  </button>
-                </form>
-                <Link
-                  href={`/admin/domains/${d.id}`}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark"
-                >
-                  Manage →
-                </Link>
-                <form action={deleteDomain} className="ml-auto">
-                  <input type="hidden" name="id" value={d.id} />
-                  <button className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50">
-                    Delete
-                  </button>
-                </form>
-              </div>
+                  {/* access */}
+                  <div>
+                    <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Users &amp; access</div>
+                    {d.assignments.length > 0 && (
+                      <ul className="mb-2 flex flex-wrap gap-1.5">
+                        {d.assignments.map((a) => (
+                          <li key={a.id} className="flex items-center gap-1 rounded-full border bg-white px-2 py-0.5 text-xs">
+                            <span className={a.group ? 'text-purple-700' : 'text-gray-700'}>
+                              {a.group ? `👥 ${a.group.name} (${a.group._count.members})` : `👤 ${a.user?.email}`}
+                            </span>
+                            <form action={unassignDomain}>
+                              <input type="hidden" name="assignmentId" value={a.id} />
+                              <input type="hidden" name="domainId" value={d.id} />
+                              <button className="text-gray-300 hover:text-red-500">✕</button>
+                            </form>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <form action={assignDomain} className="flex items-center gap-1">
+                        <input type="hidden" name="domainId" value={d.id} />
+                        <input name="email" type="email" placeholder="user@email.com" className="w-48 rounded border px-2 py-1 text-xs" />
+                        <button className="rounded bg-brand px-2 py-1 text-xs text-white hover:bg-brand-dark">Assign user</button>
+                      </form>
+                      {groups.length > 0 && (
+                        <form action={assignDomainToGroup} className="flex items-center gap-1">
+                          <input type="hidden" name="domainId" value={d.id} />
+                          <select name="groupId" defaultValue="" className="rounded border px-2 py-1 text-xs">
+                            <option value="" disabled>Select group…</option>
+                            {groups.map((g) => (
+                              <option key={g.id} value={g.id}>{g.name} ({g._count.members})</option>
+                            ))}
+                          </select>
+                          <button className="rounded bg-purple-600 px-2 py-1 text-xs text-white hover:bg-purple-700">Assign group</button>
+                        </form>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </details>
             </div>
           );
         })}
@@ -304,78 +314,47 @@ export default async function AdminDomainsPage() {
   );
 }
 
-function ScoreMeter({
+function SummaryCard({
   label,
-  score,
-  suffix = '',
+  value,
+  tone = 'default',
 }: {
   label: string;
-  score: number | null;
-  suffix?: string;
+  value: number | string;
+  tone?: 'default' | 'good' | 'warn' | 'bad';
 }) {
+  const c = tone === 'good' ? 'text-green-600' : tone === 'warn' ? 'text-amber-600' : tone === 'bad' ? 'text-red-600' : 'text-gray-900';
+  return (
+    <div className="rounded-xl border bg-white px-4 py-3">
+      <div className="text-xs uppercase tracking-wide text-gray-400">{label}</div>
+      <div className={`mt-1 text-2xl font-bold ${c}`}>{value}</div>
+    </div>
+  );
+}
+
+function Meter({ label, score }: { label: string; score: number | null }) {
   const has = typeof score === 'number';
   return (
-    <div className="rounded-lg border p-3">
-      <div className="text-[11px] uppercase tracking-wide text-gray-400">{label}</div>
-      <div className="mt-1 flex items-end gap-1">
-        <span className={`text-2xl font-bold ${has ? textColor(score!) : 'text-gray-300'}`}>
-          {has ? score : '—'}
-        </span>
-        {has && <span className="pb-1 text-xs text-gray-400">{suffix}</span>}
+    <div className="w-16">
+      <div className="flex items-baseline justify-between">
+        <span className="text-[10px] uppercase tracking-wide text-gray-400">{label}</span>
+        <span className={`text-xs font-bold ${has ? textColor(score!) : 'text-gray-300'}`}>{has ? score : '—'}</span>
       </div>
-      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
-        <div
-          className={`h-full rounded-full ${has ? barColor(score!) : 'bg-gray-200'}`}
-          style={{ width: `${has ? score : 0}%` }}
-        />
+      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+        <div className={`h-full rounded-full ${has ? barColor(score!) : 'bg-gray-200'}`} style={{ width: `${has ? score : 0}%` }} />
       </div>
     </div>
   );
 }
 
-function timeAgo(date: Date): string {
-  const diff = Date.now() - new Date(date).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
-
-/* — icons — */
-function RefreshIcon() {
+function MiniStat({ label, value, plain = false }: { label: string; value: number | null; plain?: boolean }) {
+  const has = typeof value === 'number';
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-      <path d="M21 3v5h-5" />
-      <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-      <path d="M3 21v-5h5" />
-    </svg>
-  );
-}
-function WrenchIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14.7 6.3a4 4 0 0 0-5.4 5.3L3 18l3 3 6.4-6.3a4 4 0 0 0 5.3-5.4l-2.8 2.8-2.1-2.1 2.8-2.8Z" />
-    </svg>
-  );
-}
-function UserIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-      <circle cx="12" cy="7" r="4" />
-    </svg>
-  );
-}
-function GroupIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-    </svg>
+    <div className="text-center">
+      <div className={`text-sm font-bold ${plain || !has ? 'text-gray-900' : textColor(value!)}`}>
+        {has ? value : '—'}
+      </div>
+      <div className="text-[10px] uppercase tracking-wide text-gray-400">{label}</div>
+    </div>
   );
 }
