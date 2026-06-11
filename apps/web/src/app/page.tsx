@@ -2,6 +2,7 @@ import { TempInbox } from '@/components/TempInbox';
 import { AdSlot } from '@/components/AdSlot';
 import { Reveal } from '@/components/Reveal';
 import { CountUp } from '@/components/CountUp';
+import { SocialLinks } from '@/components/SocialLinks';
 import { getHomeContent } from '@/lib/home-content';
 
 export const dynamic = 'force-dynamic';
@@ -85,15 +86,26 @@ export default async function HomePage() {
           <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">{c.features.heading}</h2>
           <p className="mt-3 text-lg text-gray-600">{c.features.subheading}</p>
         </Reveal>
-        <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {c.features.items.map((f, i) => (
-            <Reveal key={f.title} delay={i * 70}>
-              <div className="group h-full rounded-2xl border bg-white p-6 transition hover:-translate-y-1 hover:border-brand/30 hover:shadow-lg">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-brand/10 to-accent/10 text-2xl transition group-hover:scale-110">
+            <Reveal key={f.title} delay={(i % 3) * 60}>
+              <div className="group relative h-full rounded-2xl border bg-white p-5 transition hover:-translate-y-1 hover:border-brand/30 hover:shadow-lg">
+                {f.tier && (
+                  <span
+                    className={`absolute right-4 top-4 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                      f.tier === 'free'
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-brand/10 text-brand'
+                    }`}
+                  >
+                    {f.tier}
+                  </span>
+                )}
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-brand/10 to-accent/10 text-2xl transition group-hover:scale-110">
                   {f.icon}
                 </div>
-                <h3 className="mt-4 text-lg font-semibold text-gray-900">{f.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-gray-600">{f.desc}</p>
+                <h3 className="mt-3 text-base font-semibold text-gray-900">{f.title}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-gray-600">{f.desc}</p>
               </div>
             </Reveal>
           ))}
@@ -134,6 +146,39 @@ export default async function HomePage() {
               <div className="mt-1 text-sm text-white/70">{s.label}</div>
             </Reveal>
           ))}
+        </div>
+      </section>
+
+      {/* ── Free perks (marketing the free tier) ───────────── */}
+      <section className="border-y bg-gradient-to-br from-green-50/60 via-white to-brand/5">
+        <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-20 lg:grid-cols-2">
+          <Reveal>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
+              ✓ Free, forever
+            </span>
+            <h2 className="mt-4 text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
+              {c.freePerks.heading}
+            </h2>
+            <p className="mt-3 text-lg text-gray-600">{c.freePerks.subheading}</p>
+            <a
+              href={c.freePerks.cta.href}
+              className="mt-6 inline-flex items-center gap-2 rounded-xl bg-green-600 px-6 py-3 text-base font-semibold text-white shadow-lg shadow-green-600/20 transition hover:-translate-y-0.5 hover:bg-green-700"
+            >
+              {c.freePerks.cta.label} <span aria-hidden>→</span>
+            </a>
+          </Reveal>
+          <Reveal delay={120}>
+            <ul className="space-y-3 rounded-2xl border bg-white p-6 shadow-sm">
+              {c.freePerks.items.map((item) => (
+                <li key={item} className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-green-100 text-xs text-green-700">
+                    ✓
+                  </span>
+                  <span className="text-sm text-gray-700">{item}</span>
+                </li>
+              ))}
+            </ul>
+          </Reveal>
         </div>
       </section>
 
@@ -201,6 +246,7 @@ export default async function HomePage() {
                 {c.finalCta.secondaryCta.label}
               </a>
             </div>
+            <SocialLinks socials={c.socials} className="mt-8 justify-center" />
           </Reveal>
         </div>
       </section>

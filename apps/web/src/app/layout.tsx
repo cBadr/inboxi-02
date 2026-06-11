@@ -2,15 +2,17 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { getSeo, toMetadata } from '@/lib/seo';
 import { Tracker } from '@/components/Tracker';
-import { DEFAULT_HOME } from '@/lib/home-content';
+import { SocialLinks } from '@/components/SocialLinks';
+import { getHomeContent } from '@/lib/home-content';
 
 // SEO is DB-driven (admin SEO module). Falls back to sensible defaults.
 export async function generateMetadata(): Promise<Metadata> {
   return toMetadata(await getSeo('global'));
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const year = new Date().getFullYear();
+  const home = await getHomeContent();
   return (
     <html lang="en">
       <body>
@@ -56,7 +58,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   </span>
                   <span>Inbox<span className="text-brand">i</span></span>
                 </div>
-                <p className="mt-3 max-w-sm text-sm text-gray-500">{DEFAULT_HOME.footerTagline}</p>
+                <p className="mt-3 max-w-sm text-sm text-gray-500">{home.footerTagline}</p>
+                <SocialLinks socials={home.socials} className="mt-4" />
               </div>
               <div>
                 <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Product</div>

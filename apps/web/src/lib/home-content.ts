@@ -12,6 +12,11 @@ export interface Feature {
   icon: string; // short emoji/char shown in the feature badge
   title: string;
   desc: string;
+  tier?: 'free' | 'pro'; // shown as a badge to highlight what's free
+}
+export interface Social {
+  platform: string; // twitter | telegram | github | instagram | facebook | linkedin | youtube | discord | tiktok
+  url: string;
 }
 export interface Step {
   title: string;
@@ -40,10 +45,12 @@ export interface HomeContent {
   features: { heading: string; subheading: string; items: Feature[] };
   steps: { heading: string; subheading: string; items: Step[] };
   stats: Stat[];
+  freePerks: { heading: string; subheading: string; items: string[]; cta: CtaLink };
   pricingCta: { heading: string; subheading: string; cta: CtaLink; note: string };
   faq: { heading: string; items: Faq[] };
   finalCta: { heading: string; subheading: string; primaryCta: CtaLink; secondaryCta: CtaLink };
   footerTagline: string;
+  socials: Social[];
 }
 
 export const DEFAULT_HOME: HomeContent = {
@@ -59,16 +66,39 @@ export const DEFAULT_HOME: HomeContent = {
   },
   trustBar: ['Instant addresses', 'Auto-expiring', 'OTP auto-detect', 'Custom domains', 'Developer API'],
   features: {
-    heading: 'Everything you need from a temp mail — and more',
-    subheading: 'Built for privacy, speed, and people who hate spam.',
+    heading: 'A complete mail platform — not just throwaway addresses',
+    subheading: 'Everything below is built in. Start free, upgrade only when you outgrow it.',
     items: [
-      { icon: '⚡', title: 'Instant & anonymous', desc: 'A working address the moment you arrive — no forms, no waiting, no tracking.' },
-      { icon: '🔒', title: 'Privacy by default', desc: 'Addresses self-destruct on a timer. Your real inbox never sees the spam.' },
-      { icon: '🔑', title: 'OTP auto-extract', desc: 'Verification codes are detected and highlighted instantly — copy in one tap.' },
-      { icon: '🌐', title: 'Your own domains', desc: 'Bring a custom domain and send & receive from any address on it.' },
-      { icon: '📨', title: 'Send, not just receive', desc: 'Reply and compose from your temporary or custom addresses.' },
-      { icon: '🧩', title: 'Developer API', desc: 'Automate inboxes and messages with API keys and webhooks.' },
+      { icon: '⚡', title: 'Instant & anonymous', desc: 'A working inbox the moment you arrive — no forms, no waiting, no tracking.', tier: 'free' },
+      { icon: '♾️', title: 'Unlimited receiving', desc: 'Receive as many emails as you want — no caps on incoming mail.', tier: 'free' },
+      { icon: '🔑', title: 'OTP / code auto-extract', desc: 'Verification codes are detected and highlighted instantly — copy in one tap.', tier: 'free' },
+      { icon: '🔒', title: 'Privacy guaranteed', desc: 'Addresses self-destruct on a timer and your real inbox never sees the spam.', tier: 'free' },
+      { icon: '🔎', title: 'Search your inbox', desc: 'Full-text search across senders, subjects, and message bodies.', tier: 'free' },
+      { icon: '🌐', title: 'Multiple custom domains', desc: 'Connect unlimited domains and use any address on each of them.', tier: 'pro' },
+      { icon: '🎲', title: 'Random send & receive', desc: 'Send and receive from random addresses on your custom domains automatically.', tier: 'pro' },
+      { icon: '🛡️', title: 'High Trust Score', desc: 'Self-healing SPF/DKIM/DMARC + reputation monitoring keep you out of spam.', tier: 'pro' },
+      { icon: '📤', title: 'Send via SMTP', desc: 'Authenticated outbound sending from your own addresses, DKIM-signed.', tier: 'pro' },
+      { icon: '📥', title: 'Read via IMAP', desc: 'Connect any mail client — your messages, your apps, your way.', tier: 'pro' },
+      { icon: '↩️', title: 'Reply & compose', desc: 'Full reply, forward, variables, and scheduled sending built in.', tier: 'pro' },
+      { icon: '📎', title: 'Attachment management', desc: 'Receive, preview, download, and send attachments with ease.', tier: 'free' },
+      { icon: '📱', title: 'SMTP → SMS', desc: 'Turn incoming email into SMS alerts so you never miss a code.', tier: 'pro' },
+      { icon: '🧩', title: 'Developer API & webhooks', desc: 'Automate inboxes and messages with API keys and real-time webhooks.', tier: 'pro' },
+      { icon: '🤖', title: 'Telegram notifications', desc: 'Get instant alerts in Telegram the moment mail arrives.', tier: 'pro' },
+      { icon: '🗂️', title: 'Permanent mailboxes', desc: 'Keep your inbox and history forever — no more vanishing messages.', tier: 'pro' },
     ],
+  },
+  freePerks: {
+    heading: 'Free is the whole point',
+    subheading: "You don't need us — your inbox needs protecting. Start with everything below, free, forever.",
+    items: [
+      'A working inbox in seconds — no signup',
+      'Unlimited incoming email',
+      'Automatic OTP & verification-code detection',
+      'Auto-expiring, zero-tracking privacy',
+      'Inbox search & attachment downloads',
+      'Upgrade only if you want more — never required',
+    ],
+    cta: { label: 'Claim your free inbox', href: '#inbox' },
   },
   steps: {
     heading: 'Three steps. Zero friction.',
@@ -108,6 +138,14 @@ export const DEFAULT_HOME: HomeContent = {
     secondaryCta: { label: 'Try it now', href: '#inbox' },
   },
   footerTagline: 'Disposable email that respects your privacy.',
+  socials: [
+    { platform: 'twitter', url: '' },
+    { platform: 'telegram', url: '' },
+    { platform: 'github', url: '' },
+    { platform: 'instagram', url: '' },
+    { platform: 'facebook', url: '' },
+    { platform: 'youtube', url: '' },
+  ],
 };
 
 // Deep-merge stored content over the defaults so partial edits are safe.

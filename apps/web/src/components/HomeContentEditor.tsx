@@ -131,6 +131,41 @@ export function HomeContentEditor({ initial }: { initial: HomeContent }) {
         />
       </Section>
 
+      <Section title="Free perks">
+        <Field label="Heading" value={c.freePerks.heading} onChange={(v) => up((d) => void (d.freePerks.heading = v))} />
+        <Field label="Subheading" value={c.freePerks.subheading} textarea onChange={(v) => up((d) => void (d.freePerks.subheading = v))} />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="CTA label" value={c.freePerks.cta.label} onChange={(v) => up((d) => void (d.freePerks.cta.label = v))} />
+          <Field label="CTA link" value={c.freePerks.cta.href} onChange={(v) => up((d) => void (d.freePerks.cta.href = v))} />
+        </div>
+        <ListEditor
+          items={c.freePerks.items}
+          onAdd={() => up((d) => void d.freePerks.items.push('New perk'))}
+          onRemove={(i) => up((d) => void d.freePerks.items.splice(i, 1))}
+          render={(item, i) => (
+            <input value={item} onChange={(e) => up((d) => void (d.freePerks.items[i] = e.target.value))} className={input} />
+          )}
+        />
+      </Section>
+
+      <Section title="Social links">
+        <p className="text-xs text-gray-400">
+          Supported icons: twitter, telegram, github, instagram, facebook, youtube, discord, tiktok,
+          linkedin. Leave a URL blank to hide that icon.
+        </p>
+        <ListEditor
+          items={c.socials}
+          onAdd={() => up((d) => void d.socials.push({ platform: 'twitter', url: '' }))}
+          onRemove={(i) => up((d) => void d.socials.splice(i, 1))}
+          render={(item, i) => (
+            <div className="flex flex-1 gap-2">
+              <input value={item.platform} onChange={(e) => up((d) => void (d.socials[i]!.platform = e.target.value))} className={`${input} w-32`} placeholder="platform" />
+              <input value={item.url} onChange={(e) => up((d) => void (d.socials[i]!.url = e.target.value))} className={input} placeholder="https://…" />
+            </div>
+          )}
+        />
+      </Section>
+
       <Section title="Pricing CTA">
         <Field label="Heading" value={c.pricingCta.heading} onChange={(v) => up((d) => void (d.pricingCta.heading = v))} />
         <Field label="Subheading" value={c.pricingCta.subheading} textarea onChange={(v) => up((d) => void (d.pricingCta.subheading = v))} />

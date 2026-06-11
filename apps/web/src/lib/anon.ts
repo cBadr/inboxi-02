@@ -41,12 +41,6 @@ export async function getOrCreateAnonSession(): Promise<AnonSessionView> {
   return createAnonSession();
 }
 
-// Always provision a brand-new session + address (used by the "New address"
-// button), replacing whatever the cookie pointed to.
-export async function createFreshAnonSession(): Promise<AnonSessionView> {
-  return createAnonSession();
-}
-
 async function createAnonSession(): Promise<AnonSessionView> {
   const jar = await cookies();
   const gateAfter = await getSetting('tempmail.gateAfterMessages');
