@@ -1,5 +1,6 @@
 import { prisma, PaymentProviderType, PaymentStatus, SubscriptionStatus } from '@inboxi/db';
-import type { PaymentEventStatus } from '@inboxi/integrations/payments';
+import { type PaymentEventStatus, createNowPaymentsInvoice } from '@inboxi/integrations/payments';
+import { gatewayConfigured } from './payments-config';
 
 export interface CheckoutResult {
   ok: boolean;
@@ -28,18 +29,51 @@ export async function createCheckout(
     },
   });
 
-  // Live checkout creation would call the provider API here and store providerRef
-  // + payUrl. In dev (no creds) we hand back a simulate URL.
-  const hasCreds =
-    provider === 'COINPAYMENTS'
-      ? Boolean(process.env.COINPAYMENTS_PUBLIC_KEY)
-      : Boolean(process.env.BINANCE_PAY_API_KEY);
+  // Without live credentials, hand back a local simulate URL so the flow stays
+  // testable end-to-end.
+  if (!gatewayConfigured(provider)) {
+    return {
+      ok: true,
+      paymentId: payment.id,
+      payUrl: `/api/payments/dev-complete?paymentId=${payment.id}`,
+    };
+  }
 
-  const payUrl = hasCreds
-    ? undefined // set by real provider integration
-    : `/api/payments/dev-complete?paymentId=${payment.id}`;
+  const appUrl = process.env.APP_URL ?? '';
 
-  return { ok: true, paymentId: payment.id, payUrl };
+  // NowPayments has a real hosted invoice — create it and return its URL.
+  if (provider === 'NOWPAYMENTS') {
+    try {
+      const invoice = await createNowPaymentsInvoice(
+        {
+          amountUsd: Number(plan.priceUsd),
+          orderId: payment.id,
+          itemName: `${plan.name} subscription`,
+          successUrl: `${appUrl}/dashboard/subscription?paid=1`,
+          cancelUrl: `${appUrl}/pricing`,
+        },
+        {
+          apiKey: process.env.NOWPAYMENTS_API_KEY!,
+          ipnCallbackUrl: `${appUrl}/api/payments/ipn/nowpayments`,
+        },
+      );
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: { providerRef: invoice.providerRef },
+      });
+      return { ok: true, paymentId: payment.id, payUrl: invoice.payUrl };
+    } catch {
+      await prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: PaymentStatus.FAILED },
+      });
+      return { ok: false, error: 'gateway_error' };
+    }
+  }
+
+  // CoinPayments / Binance Pay hosted-checkout creation is provider-specific and
+  // not yet wired; their IPN/webhook verification is already in place.
+  return { ok: true, paymentId: payment.id };
 }
 
 // Apply a verified webhook event to a payment, activating a subscription on

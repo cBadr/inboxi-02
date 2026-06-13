@@ -4,7 +4,9 @@ import { getSeo, toMetadata } from '@/lib/seo';
 import { Tracker } from '@/components/Tracker';
 import { SocialLinks } from '@/components/SocialLinks';
 import { Logo } from '@/components/Logo';
+import { LogoutButton } from '@/components/LogoutButton';
 import { getHomeContent } from '@/lib/home-content';
+import { getCurrentUser } from '@/lib/session';
 
 // SEO is DB-driven (admin SEO module). Falls back to sensible defaults.
 export async function generateMetadata(): Promise<Metadata> {
@@ -14,7 +16,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const year = new Date().getFullYear();
-  const home = await getHomeContent();
+  const [home, user] = await Promise.all([getHomeContent(), getCurrentUser()]);
   return (
     <html lang="en">
       <body>
@@ -31,15 +33,40 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <a href="/#faq" className="transition hover:text-brand">FAQ</a>
               </nav>
               <div className="flex items-center gap-2 text-sm">
-                <a href="/login" className="rounded-lg px-3 py-1.5 text-gray-600 transition hover:text-brand">
-                  Sign in
-                </a>
-                <a
-                  href="/signup"
-                  className="rounded-lg bg-brand px-3.5 py-1.5 font-medium text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-dark"
-                >
-                  Sign up free
-                </a>
+                {user ? (
+                  <>
+                    {user.roleName === 'admin' && (
+                      <a href="/admin" className="hidden rounded-lg px-3 py-1.5 text-gray-600 transition hover:text-brand sm:inline">
+                        Admin
+                      </a>
+                    )}
+                    <a
+                      href="/dashboard"
+                      className="rounded-lg bg-brand px-3.5 py-1.5 font-medium text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-dark"
+                    >
+                      Dashboard
+                    </a>
+                    <span
+                      title={user.email}
+                      className="hidden h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-brand to-accent text-xs font-semibold text-white sm:flex"
+                    >
+                      {(user.name?.[0] ?? user.email[0] ?? '?').toUpperCase()}
+                    </span>
+                    <LogoutButton className="rounded-lg px-3 py-1.5 text-gray-500 transition hover:text-brand" />
+                  </>
+                ) : (
+                  <>
+                    <a href="/login" className="rounded-lg px-3 py-1.5 text-gray-600 transition hover:text-brand">
+                      Sign in
+                    </a>
+                    <a
+                      href="/signup"
+                      className="rounded-lg bg-brand px-3.5 py-1.5 font-medium text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-brand-dark"
+                    >
+                      Sign up free
+                    </a>
+                  </>
+                )}
               </div>
             </div>
           </header>

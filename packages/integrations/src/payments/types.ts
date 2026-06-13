@@ -1,4 +1,4 @@
-export type PaymentProviderType = 'COINPAYMENTS' | 'BINANCE_PAY';
+export type PaymentProviderType = 'COINPAYMENTS' | 'BINANCE_PAY' | 'NOWPAYMENTS';
 
 export interface CheckoutInput {
   amountUsd: number;

@@ -2,14 +2,20 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import type { PaymentProviderType } from '@inboxi/db';
 
-export function UpgradeButton({ planId }: { planId: string }) {
+interface Gateway {
+  provider: PaymentProviderType;
+  label: string;
+}
+
+export function UpgradeButton({ planId, gateways }: { planId: string; gateways: Gateway[] }) {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const checkout = async (provider: 'COINPAYMENTS' | 'BINANCE_PAY') => {
-    setLoading(true);
+  const checkout = async (provider: PaymentProviderType) => {
+    setLoading(provider);
     setError(null);
     try {
       const res = await fetch('/api/payments/checkout', {
@@ -29,29 +35,33 @@ export function UpgradeButton({ planId }: { planId: string }) {
       if (data.payUrl) {
         window.location.href = data.payUrl;
       } else {
-        setError('Awaiting provider configuration');
+        setError('This gateway is awaiting configuration.');
       }
     } finally {
-      setLoading(false);
+      setLoading(null);
     }
   };
 
+  if (gateways.length === 0) {
+    return <p className="mt-4 text-xs text-gray-400">Payments are temporarily unavailable.</p>;
+  }
+
   return (
     <div className="mt-4 space-y-2">
-      <button
-        onClick={() => checkout('COINPAYMENTS')}
-        disabled={loading}
-        className="w-full rounded bg-brand py-2 text-sm text-white hover:bg-brand-dark disabled:opacity-50"
-      >
-        Pay with CoinPayments
-      </button>
-      <button
-        onClick={() => checkout('BINANCE_PAY')}
-        disabled={loading}
-        className="w-full rounded border border-brand py-2 text-sm text-brand hover:bg-indigo-50 disabled:opacity-50"
-      >
-        Pay with Binance Pay
-      </button>
+      {gateways.map((g, i) => (
+        <button
+          key={g.provider}
+          onClick={() => checkout(g.provider)}
+          disabled={loading !== null}
+          className={`w-full rounded-lg py-2 text-sm font-medium transition disabled:opacity-50 ${
+            i === 0
+              ? 'bg-brand text-white hover:bg-brand-dark'
+              : 'border border-brand text-brand hover:bg-indigo-50'
+          }`}
+        >
+          {loading === g.provider ? 'Starting…' : `Pay with ${g.label}`}
+        </button>
+      ))}
       {error && <p className="text-xs text-red-600">{error}</p>}
     </div>
   );

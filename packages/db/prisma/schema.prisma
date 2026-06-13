@@ -74,6 +74,7 @@ enum SubscriptionStatus {
 enum PaymentProviderType {
   COINPAYMENTS
   BINANCE_PAY
+  NOWPAYMENTS
 }
 
 enum PaymentStatus {
