@@ -8,15 +8,17 @@ import { planPerks } from '@/lib/plan-display';
 export const dynamic = 'force-dynamic';
 
 export default async function PricingPage() {
-  const [plans, gateways] = await Promise.all([
+  const [allPlans, gateways] = await Promise.all([
     prisma.plan.findMany({ where: { isActive: true }, orderBy: { sortOrder: 'asc' } }).catch(() => []),
     enabledGateways(),
   ]);
   const gatewayNames = gateways.map((g) => g.label).join(', ') || 'crypto';
 
+  // Visitors are already on the free tier — only paid plans are offered here.
+  const plans = allPlans.filter((p) => !p.isFree);
+
   // Mark the middle paid plan as "most popular".
-  const paid = plans.filter((p) => !p.isFree);
-  const popularId = paid.length ? paid[Math.floor((paid.length - 1) / 2)]!.id : null;
+  const popularId = plans.length ? plans[Math.floor((plans.length - 1) / 2)]!.id : null;
 
   return (
     <div className="bg-hero-mesh">
