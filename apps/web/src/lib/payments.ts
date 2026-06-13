@@ -1,6 +1,6 @@
 import { prisma, PaymentProviderType, PaymentStatus, SubscriptionStatus } from '@inboxi/db';
 import { type PaymentEventStatus, createNowPaymentsInvoice } from '@inboxi/integrations/payments';
-import { gatewayConfigured } from './payments-config';
+import { isGatewayConfigured, getGatewayCredentials } from './payments-config';
 
 export interface CheckoutResult {
   ok: boolean;
@@ -31,7 +31,7 @@ export async function createCheckout(
 
   // Without live credentials, hand back a local simulate URL so the flow stays
   // testable end-to-end.
-  if (!gatewayConfigured(provider)) {
+  if (!(await isGatewayConfigured(provider))) {
     return {
       ok: true,
       paymentId: payment.id,
@@ -44,6 +44,7 @@ export async function createCheckout(
   // NowPayments has a real hosted invoice — create it and return its URL.
   if (provider === 'NOWPAYMENTS') {
     try {
+      const creds = await getGatewayCredentials('NOWPAYMENTS');
       const invoice = await createNowPaymentsInvoice(
         {
           amountUsd: Number(plan.priceUsd),
@@ -53,7 +54,7 @@ export async function createCheckout(
           cancelUrl: `${appUrl}/pricing`,
         },
         {
-          apiKey: process.env.NOWPAYMENTS_API_KEY!,
+          apiKey: creds.apiKey ?? '',
           ipnCallbackUrl: `${appUrl}/api/payments/ipn/nowpayments`,
         },
       );

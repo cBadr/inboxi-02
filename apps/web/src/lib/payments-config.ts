@@ -1,8 +1,105 @@
 import { prisma, type PaymentProviderType } from '@inboxi/db';
+import { encryptSecret, decryptSecret } from './crypto';
 
 export interface GatewayInfo {
   provider: PaymentProviderType;
   label: string;
+}
+
+// Credential fields each gateway needs. `secret` fields are masked in the UI and
+// stored encrypted; `env` is the fallback environment variable.
+export interface CredField {
+  key: string;
+  label: string;
+  env: string;
+  secret?: boolean;
+}
+export const CREDENTIAL_FIELDS: Record<PaymentProviderType, CredField[]> = {
+  NOWPAYMENTS: [
+    { key: 'apiKey', label: 'API key', env: 'NOWPAYMENTS_API_KEY', secret: true },
+    { key: 'ipnSecret', label: 'IPN secret', env: 'NOWPAYMENTS_IPN_SECRET', secret: true },
+  ],
+  COINPAYMENTS: [
+    { key: 'publicKey', label: 'Public key', env: 'COINPAYMENTS_PUBLIC_KEY', secret: true },
+    { key: 'privateKey', label: 'Private key', env: 'COINPAYMENTS_PRIVATE_KEY', secret: true },
+    { key: 'merchantId', label: 'Merchant ID', env: 'COINPAYMENTS_MERCHANT_ID' },
+    { key: 'ipnSecret', label: 'IPN secret', env: 'COINPAYMENTS_IPN_SECRET', secret: true },
+  ],
+  BINANCE_PAY: [
+    { key: 'apiKey', label: 'API key', env: 'BINANCE_PAY_API_KEY', secret: true },
+    { key: 'apiSecret', label: 'API secret', env: 'BINANCE_PAY_API_SECRET', secret: true },
+  ],
+};
+
+// The field that, when present, lets us attempt a live checkout for a gateway.
+const PRIMARY_FIELD: Record<PaymentProviderType, string> = {
+  NOWPAYMENTS: 'apiKey',
+  COINPAYMENTS: 'publicKey',
+  BINANCE_PAY: 'apiKey',
+};
+
+type StoredCreds = Partial<Record<PaymentProviderType, Record<string, string>>>;
+
+async function getStoredCreds(): Promise<StoredCreds> {
+  try {
+    const row = await prisma.setting.findUnique({ where: { key: 'payments.credentials' } });
+    return (row?.value as StoredCreds) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function tryDecrypt(v: string | undefined): string | undefined {
+  if (!v) return undefined;
+  try {
+    return decryptSecret(v);
+  } catch {
+    return undefined;
+  }
+}
+
+// Resolve a gateway's credentials: DB-stored (decrypted) values win, falling back
+// to the matching environment variable per field.
+export async function getGatewayCredentials(
+  provider: PaymentProviderType,
+): Promise<Record<string, string | undefined>> {
+  const stored = (await getStoredCreds())[provider] ?? {};
+  const out: Record<string, string | undefined> = {};
+  for (const f of CREDENTIAL_FIELDS[provider]) {
+    out[f.key] = tryDecrypt(stored[f.key]) ?? process.env[f.env] ?? undefined;
+  }
+  return out;
+}
+
+// Save credentials for a gateway. Empty submitted fields are left unchanged so
+// the admin never has to re-type existing secrets.
+export async function saveGatewayCredentials(
+  provider: PaymentProviderType,
+  fields: Record<string, string>,
+): Promise<void> {
+  const all = await getStoredCreds();
+  const current = { ...(all[provider] ?? {}) };
+  for (const f of CREDENTIAL_FIELDS[provider]) {
+    const v = (fields[f.key] ?? '').trim();
+    if (v) current[f.key] = encryptSecret(v);
+  }
+  all[provider] = current;
+  await prisma.setting.upsert({
+    where: { key: 'payments.credentials' },
+    update: { value: all as object },
+    create: { key: 'payments.credentials', value: all as object, category: 'payments' },
+  });
+}
+
+// Which credential fields are set (DB or env) — for the admin status display,
+// without revealing the values.
+export async function credentialStatus(
+  provider: PaymentProviderType,
+): Promise<Record<string, boolean>> {
+  const creds = await getGatewayCredentials(provider);
+  const out: Record<string, boolean> = {};
+  for (const f of CREDENTIAL_FIELDS[provider]) out[f.key] = Boolean(creds[f.key]);
+  return out;
 }
 
 // All gateways the platform can offer, in display order.
@@ -46,11 +143,11 @@ export async function saveGatewayConfig(cfg: GatewayConfig): Promise<void> {
   });
 }
 
-// Whether live API credentials exist for a gateway (else dev/simulate flow).
-export function gatewayConfigured(p: PaymentProviderType): boolean {
-  if (p === 'NOWPAYMENTS') return Boolean(process.env.NOWPAYMENTS_API_KEY);
-  if (p === 'COINPAYMENTS') return Boolean(process.env.COINPAYMENTS_PUBLIC_KEY);
-  return Boolean(process.env.BINANCE_PAY_API_KEY);
+// Whether live API credentials exist for a gateway (DB or env) — else the
+// dev/simulate flow is used at checkout.
+export async function isGatewayConfigured(p: PaymentProviderType): Promise<boolean> {
+  const creds = await getGatewayCredentials(p);
+  return Boolean(creds[PRIMARY_FIELD[p]]);
 }
 
 // Gateways currently offered to buyers (enabled in admin), default first.

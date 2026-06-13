@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyNowPaymentsIpn } from '@inboxi/integrations/payments';
 import { applyPaymentEvent } from '@/lib/payments';
+import { getGatewayCredentials } from '@/lib/payments-config';
 
 // NowPayments IPN handler. Verifies the HMAC-SHA512 signature over the
 // alphabetically-sorted JSON body, then applies the event (activating a
-// subscription on completion).
+// subscription on completion). Secret resolves from admin-saved credentials
+// (encrypted in DB) or the NOWPAYMENTS_IPN_SECRET env var.
 export async function POST(req: NextRequest) {
-  const secret = process.env.NOWPAYMENTS_IPN_SECRET;
+  const secret = (await getGatewayCredentials('NOWPAYMENTS')).ipnSecret;
   if (!secret) return NextResponse.json({ error: 'not_configured' }, { status: 503 });
 
   const rawBody = await req.text();

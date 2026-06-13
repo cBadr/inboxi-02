@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyBinancePayWebhook } from '@inboxi/integrations/payments';
 import { applyPaymentEvent } from '@/lib/payments';
+import { getGatewayCredentials } from '@/lib/payments-config';
 
 export async function POST(req: NextRequest) {
-  const secret = process.env.BINANCE_PAY_API_SECRET;
+  const secret = (await getGatewayCredentials('BINANCE_PAY')).apiSecret;
   if (!secret) return NextResponse.json({ error: 'not_configured' }, { status: 503 });
 
   const rawBody = await req.text();

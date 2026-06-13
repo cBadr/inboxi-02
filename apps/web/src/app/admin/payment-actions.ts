@@ -3,8 +3,26 @@
 import { revalidatePath } from 'next/cache';
 import type { PaymentProviderType } from '@inboxi/db';
 import { requireAdmin } from '@/lib/session';
-import { GATEWAYS, saveGatewayConfig } from '@/lib/payments-config';
+import {
+  GATEWAYS,
+  CREDENTIAL_FIELDS,
+  saveGatewayConfig,
+  saveGatewayCredentials,
+} from '@/lib/payments-config';
 import { writeAudit } from '@/lib/audit';
+
+// Save (or update) one gateway's account credentials. Empty fields are kept.
+export async function saveGatewayAccount(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const provider = String(formData.get('provider') ?? '') as PaymentProviderType;
+  const fields = CREDENTIAL_FIELDS[provider];
+  if (!fields) return;
+  const values: Record<string, string> = {};
+  for (const f of fields) values[f.key] = String(formData.get(f.key) ?? '');
+  await saveGatewayCredentials(provider, values);
+  await writeAudit({ actorId: admin.id, action: 'payments.credentials_update', entity: 'payments', entityId: provider });
+  revalidatePath('/admin/payments');
+}
 
 export async function saveGateways(formData: FormData): Promise<void> {
   const admin = await requireAdmin();

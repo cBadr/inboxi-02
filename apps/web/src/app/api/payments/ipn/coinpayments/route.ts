@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyCoinPaymentsIpn } from '@inboxi/integrations/payments';
 import { applyPaymentEvent } from '@/lib/payments';
+import { getGatewayCredentials } from '@/lib/payments-config';
 
 // CoinPayments IPN handler. Verifies the HMAC over the raw body, then applies
-// the event (activating a subscription on completion).
+// the event. Secret resolves from admin-saved credentials (encrypted) or env.
 export async function POST(req: NextRequest) {
-  const secret = process.env.COINPAYMENTS_IPN_SECRET;
+  const secret = (await getGatewayCredentials('COINPAYMENTS')).ipnSecret;
   if (!secret) return NextResponse.json({ error: 'not_configured' }, { status: 503 });
 
   const rawBody = await req.text();
