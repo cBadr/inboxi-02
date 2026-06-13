@@ -17,6 +17,7 @@ export interface CredField {
 export const CREDENTIAL_FIELDS: Record<PaymentProviderType, CredField[]> = {
   NOWPAYMENTS: [
     { key: 'apiKey', label: 'API key', env: 'NOWPAYMENTS_API_KEY', secret: true },
+    { key: 'publicKey', label: 'Public key (optional)', env: 'NOWPAYMENTS_PUBLIC_KEY', secret: true },
     { key: 'ipnSecret', label: 'IPN secret', env: 'NOWPAYMENTS_IPN_SECRET', secret: true },
   ],
   COINPAYMENTS: [

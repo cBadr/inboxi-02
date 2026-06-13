@@ -16,23 +16,38 @@ export async function createNowPaymentsInvoice(
   input: CheckoutInput,
   opts: NowPaymentsOptions,
 ): Promise<CheckoutResult> {
+  if (!opts.apiKey) throw new Error('NowPayments API key is not set');
   const f = opts.fetchImpl ?? fetch;
+  // Only include callback URLs that are absolute https — NowPayments rejects
+  // relative/invalid URLs with a 400.
+  const abs = (u?: string) => (u && /^https?:\/\//.test(u) ? u : undefined);
+  const body: Record<string, unknown> = {
+    price_amount: input.amountUsd,
+    price_currency: 'usd',
+    order_id: input.orderId,
+    order_description: input.itemName,
+  };
+  const ipn = abs(opts.ipnCallbackUrl);
+  const ok = abs(input.successUrl);
+  const cancel = abs(input.cancelUrl);
+  if (ipn) body.ipn_callback_url = ipn;
+  if (ok) body.success_url = ok;
+  if (cancel) body.cancel_url = cancel;
+
   const res = await f(`${API_BASE}/invoice`, {
     method: 'POST',
     headers: { 'x-api-key': opts.apiKey, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      price_amount: input.amountUsd,
-      price_currency: 'usd',
-      order_id: input.orderId,
-      order_description: input.itemName,
-      ipn_callback_url: opts.ipnCallbackUrl,
-      success_url: input.successUrl,
-      cancel_url: input.cancelUrl,
-    }),
+    body: JSON.stringify(body),
   });
-  const data = (await res.json().catch(() => ({}))) as { id?: string; invoice_url?: string };
+  const data = (await res.json().catch(() => ({}))) as {
+    id?: string;
+    invoice_url?: string;
+    message?: string;
+    code?: string;
+  };
   if (!res.ok || !data.invoice_url) {
-    throw new Error(`NowPayments invoice failed: ${res.status}`);
+    const reason = data.message || data.code || `HTTP ${res.status}`;
+    throw new Error(`NowPayments invoice failed: ${reason}`);
   }
   return {
     provider: 'NOWPAYMENTS',

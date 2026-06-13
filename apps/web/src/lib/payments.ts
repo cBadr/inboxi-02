@@ -39,23 +39,29 @@ export async function createCheckout(
     };
   }
 
-  const appUrl = process.env.APP_URL ?? '';
+  // Absolute base URL for callbacks (NowPayments rejects relative URLs).
+  const base = (process.env.APP_URL ?? '').replace(/\/$/, '');
+  const abs = /^https?:\/\//.test(base) ? base : '';
 
   // NowPayments has a real hosted invoice — create it and return its URL.
   if (provider === 'NOWPAYMENTS') {
     try {
       const creds = await getGatewayCredentials('NOWPAYMENTS');
+      if (!creds.apiKey) {
+        await prisma.payment.update({ where: { id: payment.id }, data: { status: PaymentStatus.FAILED } });
+        return { ok: false, error: 'NowPayments API key is not configured (Admin → Payments).' };
+      }
       const invoice = await createNowPaymentsInvoice(
         {
           amountUsd: Number(plan.priceUsd),
           orderId: payment.id,
           itemName: `${plan.name} subscription`,
-          successUrl: `${appUrl}/dashboard/subscription?paid=1`,
-          cancelUrl: `${appUrl}/pricing`,
+          successUrl: abs ? `${abs}/dashboard/subscription?paid=1` : undefined,
+          cancelUrl: abs ? `${abs}/pricing` : undefined,
         },
         {
-          apiKey: creds.apiKey ?? '',
-          ipnCallbackUrl: `${appUrl}/api/payments/ipn/nowpayments`,
+          apiKey: creds.apiKey,
+          ipnCallbackUrl: abs ? `${abs}/api/payments/ipn/nowpayments` : undefined,
         },
       );
       await prisma.payment.update({
@@ -63,12 +69,13 @@ export async function createCheckout(
         data: { providerRef: invoice.providerRef },
       });
       return { ok: true, paymentId: payment.id, payUrl: invoice.payUrl };
-    } catch {
+    } catch (err) {
+      console.error('[payments] NowPayments checkout failed:', err);
       await prisma.payment.update({
         where: { id: payment.id },
         data: { status: PaymentStatus.FAILED },
       });
-      return { ok: false, error: 'gateway_error' };
+      return { ok: false, error: err instanceof Error ? err.message.slice(0, 180) : 'gateway_error' };
     }
   }
 
