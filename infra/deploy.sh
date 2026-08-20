@@ -26,6 +26,16 @@ if [ "$BEFORE" = "$AFTER" ]; then
 else
   echo "  $BEFORE → $AFTER"
   git --no-pager log --oneline "$BEFORE..$AFTER" | sed 's/^/    /'
+
+  # The pull may have rewritten THIS script. bash reads a script incrementally
+  # by byte offset, so continuing here would run a spliced mix of the old and
+  # new file — which is how the cron-install step silently never ran once.
+  # Hand over to the freshly pulled copy instead. INBOXI_DEPLOY_REEXEC stops
+  # this from recursing when the new copy finds nothing left to pull.
+  if [ "${INBOXI_DEPLOY_REEXEC:-0}" != "1" ]; then
+    echo "  Re-running the updated deploy script…"
+    INBOXI_DEPLOY_REEXEC=1 exec bash "$APP_DIR/infra/deploy.sh"
+  fi
 fi
 
 echo "▶ Installing dependencies…"
