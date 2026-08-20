@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { getSeo, toMetadata } from '@/lib/seo';
 import { Tracker } from '@/components/Tracker';
+import { GoogleTagManager } from '@/components/GoogleTagManager';
+import { getActiveGtm } from '@/lib/google';
 import { SocialLinks } from '@/components/SocialLinks';
 import { Logo } from '@/components/Logo';
 import { LogoutButton } from '@/components/LogoutButton';
@@ -16,7 +18,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const year = new Date().getFullYear();
-  const [home, user] = await Promise.all([getHomeContent(), getCurrentUser()]);
+  const [home, user, gtm] = await Promise.all([getHomeContent(), getCurrentUser(), getActiveGtm()]);
   return (
     <html lang="en">
       <body>
@@ -73,6 +75,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
           <main className="flex-1">{children}</main>
           <Tracker />
+          {gtm && (
+            <GoogleTagManager
+              containerId={gtm.containerId}
+              includeAppPages={gtm.includeAppPages}
+            />
+          )}
 
           {/* footer */}
           <footer className="border-t bg-white">

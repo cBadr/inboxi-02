@@ -5,3 +5,4 @@ export * from './validation';
 export * from './settings';
 export * from './otp';
 export * from './domain-policy';
+export * from './google';

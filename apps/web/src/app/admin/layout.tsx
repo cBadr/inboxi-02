@@ -15,6 +15,7 @@ const NAV = [
   { href: '/admin/ads', label: 'Ads' },
   { href: '/admin/cms', label: 'CMS' },
   { href: '/admin/analytics', label: 'Analytics' },
+  { href: '/admin/google', label: 'Google services' },
   { href: '/admin/security', label: 'Security & Abuse' },
   { href: '/admin/audit', label: 'Audit log' },
   { href: '/admin/settings', label: 'Temp-mail settings' },
