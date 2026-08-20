@@ -4,8 +4,21 @@ import { z } from 'zod';
 
 export const emailSchema = z.string().email().max(254);
 
+// Account identity. Signup and login both look the row up with an exact
+// findUnique, so the address MUST be normalized identically on both paths:
+// otherwise someone who signs up as "Badr@x.com" (or whose phone keyboard
+// capitalizes the first letter at the login screen) is told their credentials
+// are invalid for an account they own. Trim and lowercase before validating so
+// a pasted address with trailing whitespace is accepted rather than rejected as
+// a malformed payload.
+//
+// Deliberately separate from emailSchema, which is used for mail envelope
+// addresses — rewriting the case of a recipient the user typed is a different
+// decision and is not made here.
+export const accountEmailSchema = z.string().trim().toLowerCase().pipe(emailSchema);
+
 export const signupSchema = z.object({
-  email: emailSchema,
+  email: accountEmailSchema,
   password: z.string().min(8).max(200),
   name: z.string().min(1).max(120).optional(),
   referralCode: z.string().max(64).optional(),
@@ -13,7 +26,7 @@ export const signupSchema = z.object({
 });
 
 export const loginSchema = z.object({
-  email: emailSchema,
+  email: accountEmailSchema,
   password: z.string().min(1).max(200),
 });
 
