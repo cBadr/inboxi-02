@@ -1,0 +1,9 @@
+# Normalise text in the repo; the working copy may use native endings.
+* text=auto
+
+# Anything executed by a Linux shell MUST be LF — a CR turns into part of the
+# command and the script dies with $'\r': command not found on the server.
+*.sh        text eol=lf
+*.mjs       text eol=lf
+*.cjs       text eol=lf
+Dockerfile  text eol=lf
