@@ -18,7 +18,8 @@
     "db:generate": "pnpm --filter @inboxi/db generate",
     "db:migrate": "pnpm --filter @inboxi/db migrate",
     "db:studio": "pnpm --filter @inboxi/db studio",
-    "format": "prettier --write \"**/*.{ts,tsx,md,json}\""
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
+    "deploy:server": "bash infra/remote-deploy.sh"
   },
   "devDependencies": {
     "dotenv": "^16.4.7",

@@ -10,8 +10,22 @@ APP_DIR="${APP_DIR:-/opt/inboxi}"
 cd "$APP_DIR"
 
 echo "▶ Pulling latest code…"
-if [ -d .git ]; then
-  git pull --ff-only
+if [ ! -d .git ]; then
+  echo "❌ $APP_DIR is not a git checkout — nothing would be pulled and this"
+  echo "   deploy would silently rebuild the OLD code."
+  echo "   Run once:  bash infra/bootstrap-git.sh"
+  exit 1
+fi
+
+BEFORE="$(git rev-parse --short HEAD)"
+git pull --ff-only
+AFTER="$(git rev-parse --short HEAD)"
+
+if [ "$BEFORE" = "$AFTER" ]; then
+  echo "  Already up to date at $AFTER."
+else
+  echo "  $BEFORE → $AFTER"
+  git --no-pager log --oneline "$BEFORE..$AFTER" | sed 's/^/    /'
 fi
 
 echo "▶ Installing dependencies…"
@@ -45,7 +59,7 @@ echo "▶ Health check…"
 sleep 3
 if curl -fsS http://127.0.0.1:3000/api/health; then
   echo
-  echo "✅ Deploy complete."
+  echo "✅ Deploy complete — now running $(git rev-parse --short HEAD) $(git log -1 --pretty=%s)"
 else
   echo
   echo "⚠️  Health check failed — inspect: pm2 logs inboxi-web"

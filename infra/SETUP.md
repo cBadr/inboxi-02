@@ -120,13 +120,61 @@ dig MX inboxi.online +short                    # → mail.inboxi.online
 
 ---
 
+## Deploy key (one-time, enables push-button releases)
+
+Releases are **git-based**. Do not copy files with `pscp`/`scp` — the server must be a
+git checkout so every release is a known commit.
+
+**a) Make the server a git checkout** (once — safe, never overwrites your files):
+
+```bash
+cd /opt/inboxi && bash infra/bootstrap-git.sh
+```
+
+If it reports drift, the server has hand-edits that were never committed. It stops and
+shows them; decide per file, then re-run.
+
+**b) Allow key-based SSH from the dev machine** (once). On the **dev machine**:
+
+```bash
+ssh-keygen -t ed25519 -C inboxi-deploy -f ~/.ssh/inboxi_deploy -N ""
+```
+
+Then add the **public** key to the server (paste it into the server's authorized_keys):
+
+```bash
+ssh-copy-id -i ~/.ssh/inboxi_deploy.pub root@67.205.130.18
+```
+
+And point SSH at it — append to `~/.ssh/config`:
+
+```
+Host inboxi
+    HostName 67.205.130.18
+    User root
+    IdentityFile ~/.ssh/inboxi_deploy
+    StrictHostKeyChecking accept-new
+```
+
+---
+
 ## Subsequent releases
+
+**From the dev machine — one command** (pushes, then deploys, then health-checks):
+
+```bash
+pnpm deploy:server
+```
+
+**Or on the server directly:**
 
 ```bash
 cd /opt/inboxi && bash infra/deploy.sh
 ```
 
-This pulls, installs, runs migrations, builds, reloads PM2, restarts mail services, and runs the health check.
+This pulls, installs, runs migrations, builds, reloads PM2, restarts mail services, and
+runs the health check. It **aborts** if `/opt/inboxi` is not a git checkout, and prints
+the exact commit range it deployed — so a release can never silently rebuild stale code.
 
 ## Operations
 
