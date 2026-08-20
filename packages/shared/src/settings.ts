@@ -9,6 +9,7 @@ export const SETTING_KEYS = {
   TEMPMAIL_GATE_AFTER_MESSAGES: 'tempmail.gateAfterMessages',
   MAIL_MAX_MESSAGE_SIZE_MB: 'mail.maxMessageSizeMb',
   SITE_NAME: 'site.name',
+  ALERTS_TELEGRAM_CHAT_ID: 'alerts.telegramChatId',
 } as const;
 
 export interface SettingsDefaults {
@@ -17,6 +18,8 @@ export interface SettingsDefaults {
   [SETTING_KEYS.TEMPMAIL_GATE_AFTER_MESSAGES]: number;
   [SETTING_KEYS.MAIL_MAX_MESSAGE_SIZE_MB]: number;
   [SETTING_KEYS.SITE_NAME]: string;
+  /** Telegram chat the PLATFORM OWNER is paged on. Never a customer's chat. */
+  [SETTING_KEYS.ALERTS_TELEGRAM_CHAT_ID]: string;
 }
 
 export const SETTINGS_DEFAULTS: SettingsDefaults = {
@@ -25,4 +28,5 @@ export const SETTINGS_DEFAULTS: SettingsDefaults = {
   [SETTING_KEYS.TEMPMAIL_GATE_AFTER_MESSAGES]: 3,
   [SETTING_KEYS.MAIL_MAX_MESSAGE_SIZE_MB]: 25,
   [SETTING_KEYS.SITE_NAME]: 'Inboxi',
+  [SETTING_KEYS.ALERTS_TELEGRAM_CHAT_ID]: '',
 };

@@ -2,7 +2,12 @@
 
 import { revalidatePath } from 'next/cache';
 import { prisma, DomainAvailability } from '@inboxi/db';
-import { createDomainSchema, addressPatternSchema, SETTING_KEYS } from '@inboxi/shared';
+import {
+  createDomainSchema,
+  addressPatternSchema,
+  SETTING_KEYS,
+  checkDomainDeletion,
+} from '@inboxi/shared';
 import { generateDkimKeyPair } from '@inboxi/integrations/cloudflare';
 import { requireAdmin } from '@/lib/session';
 import { setSetting } from '@/lib/settings';
@@ -11,6 +16,7 @@ import { verifyDomainDns, runReputationScan, rescanDeliverability } from '@/lib/
 import { encryptSecret } from '@/lib/crypto';
 import { syncHostList, ensureCatchAllMailbox } from '@/lib/haraka';
 import { writeAudit } from '@/lib/audit';
+import { sendOperatorAlert } from '@/lib/alerts';
 import { hashPassword } from '@/lib/auth';
 
 export interface ActionResult {
@@ -153,22 +159,47 @@ export async function regenDkim(formData: FormData): Promise<void> {
   revalidatePath(`/admin/domains/${id}`);
 }
 
-export async function deleteDomain(formData: FormData): Promise<void> {
-  await requireAdmin();
+// Deleting a domain cascades its mailboxes and every message in them, so this
+// action reports what it did instead of returning void: a refused delete used to
+// look identical to a successful one — the button did nothing and said nothing.
+export async function deleteDomain(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  const admin = await requireAdmin();
   const id = String(formData.get('id') ?? '');
+  if (!id) return { ok: false, error: 'No domain selected.' };
+
+  const domain = await prisma.domain.findUnique({ where: { id } });
+  if (!domain) return { ok: false, error: 'That domain no longer exists.' };
+
   // Guard: refuse if the domain has real (non catch-all) mailboxes.
-  const count = await prisma.mailbox.count({
+  const realMailboxCount = await prisma.mailbox.count({
     where: { domainId: id, type: { not: 'CATCH_ALL' } },
   });
-  if (count > 0) return;
-  const domain = await prisma.domain.findUnique({ where: { id } });
+  const verdict = checkDomainDeletion({ name: domain.name, realMailboxCount });
+  if (!verdict.allowed) return { ok: false, error: verdict.reason };
+
+  // Count what the cascade will take, so the audit entry records the blast radius.
+  const messageCount = await prisma.message.count({ where: { mailbox: { domainId: id } } });
+
   // Detach the catch-all link, then delete the domain (cascades its mailboxes).
-  if (domain?.catchAllMailboxId) {
+  if (domain.catchAllMailboxId) {
     await prisma.domain.update({ where: { id }, data: { catchAllMailboxId: null } });
   }
   await prisma.domain.delete({ where: { id } });
   await syncHostList();
+
+  await writeAudit({
+    actorId: admin.id,
+    action: 'domain.delete',
+    entity: 'domain',
+    entityId: id,
+    metadata: { name: domain.name, cascadedMessages: messageCount },
+  });
+
   revalidatePath('/admin/domains');
+  return { ok: true };
 }
 
 export async function assignDomain(formData: FormData): Promise<void> {
@@ -291,4 +322,46 @@ export async function setUserRole(formData: FormData): Promise<void> {
   const role = await prisma.role.findUnique({ where: { name: roleName } });
   await prisma.user.update({ where: { id }, data: { roleId: role?.id ?? null } });
   revalidatePath('/admin/users');
+}
+
+// --- Operator alerting -----------------------------------------------------
+
+export async function saveAlertSettings(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  const chatId = String(formData.get('alertChatId') ?? '').trim();
+  // Telegram chat ids are numeric, optionally negative for groups/channels.
+  if (chatId && !/^-?\d{5,20}$/.test(chatId)) {
+    return { ok: false, error: 'Chat ID must be a number, e.g. 123456789 or -1001234567890.' };
+  }
+  await setSetting(SETTING_KEYS.ALERTS_TELEGRAM_CHAT_ID, chatId, 'alerts');
+  await writeAudit({
+    actorId: admin.id,
+    action: 'settings.alerts_updated',
+    entity: 'setting',
+    entityId: SETTING_KEYS.ALERTS_TELEGRAM_CHAT_ID,
+    metadata: { configured: chatId !== '' },
+  });
+  revalidatePath('/admin/settings');
+  return { ok: true };
+}
+
+// Prove the alert channel actually works, rather than discovering at 2am that it doesn't.
+export async function sendTestAlert(
+  _prev: ActionResult | null,
+  _formData: FormData,
+): Promise<ActionResult> {
+  await requireAdmin();
+  const outcome = await sendOperatorAlert(
+    '✅ <b>Inboxi test alert</b>\nOperator alerting is wired correctly.',
+  );
+  if (outcome.delivered) return { ok: true };
+  const reasons: Record<string, string> = {
+    no_bot_token: 'TELEGRAM_BOT_TOKEN is not set on the server.',
+    no_chat_id: 'No alert chat ID saved yet — save one first.',
+    send_failed: `Telegram rejected the message${outcome.detail ? `: ${outcome.detail}` : '.'}`,
+  };
+  return { ok: false, error: reasons[outcome.reason] ?? 'Could not send the alert.' };
 }

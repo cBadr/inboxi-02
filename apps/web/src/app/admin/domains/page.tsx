@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { prisma, type Prisma } from '@inboxi/db';
 import { requireAdmin } from '@/lib/session';
 import { NewDomainForm } from '@/components/NewDomainForm';
+import { DangerButton } from '@/components/admin/DangerButton';
 import { bulkProvisionAll, bulkRecheckAll } from '../domain-actions';
 import {
   rescanDomain,
@@ -259,10 +260,12 @@ export default async function AdminDomainsPage({
                         {d.isActive ? 'Deactivate' : 'Activate'}
                       </button>
                     </form>
-                    <form action={deleteDomain} className="ml-auto">
-                      <input type="hidden" name="id" value={d.id} />
-                      <button className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50">Delete</button>
-                    </form>
+                    <DangerButton
+                      action={deleteDomain}
+                      hidden={{ id: d.id }}
+                      className="ml-auto flex items-center gap-2"
+                      confirmText={`Delete ${d.name}? This also deletes its catch-all and every message received on it. This cannot be undone.`}
+                    />
                   </div>
 
                   {/* access */}

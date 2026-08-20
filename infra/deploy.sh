@@ -40,6 +40,20 @@ pnpm --filter @inboxi/db migrate:deploy
 echo "▶ Scaffolding Haraka config…"
 bash infra/setup-haraka.sh
 
+echo "▶ Installing scheduled jobs…"
+if [ -d /etc/cron.d ]; then
+  # cron ignores files whose mode is group/world writable, or that are not 0644.
+  install -m 0644 -o root -g root infra/cron.d/inboxi /etc/cron.d/inboxi
+  chmod +x infra/cron-tick.sh
+  # An older manual crontab would double-fire every job alongside /etc/cron.d.
+  if crontab -l 2>/dev/null | grep -q '/api/cron/'; then
+    echo "  ⚠️  root's personal crontab still calls /api/cron/ — it now duplicates"
+    echo "     /etc/cron.d/inboxi. Remove those lines with: crontab -e"
+  fi
+else
+  echo "  (no /etc/cron.d on this system — install the schedules manually)"
+fi
+
 echo "▶ Building…"
 pnpm build
 

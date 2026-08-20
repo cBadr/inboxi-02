@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@inboxi/db';
-import { sendTelegramMessage } from '@inboxi/integrations/telegram';
+import { sendOperatorAlert, type AlertOutcome } from '@/lib/alerts';
 import { getOutboundStats } from '@/lib/sending-stats';
 
 export const dynamic = 'force-dynamic';
@@ -19,22 +18,25 @@ export async function GET(req: NextRequest) {
   const failPct = Math.round(stats.failureRate * 100);
   const alert = stats.last24hTotal >= 20 && failPct >= 20;
 
-  if (alert && process.env.TELEGRAM_BOT_TOKEN) {
-    const integration = await prisma.integration.findFirst({
-      where: { kind: 'TELEGRAM', isActive: true },
-    });
-    const chatId = (integration?.config as { chatId?: string } | null)?.chatId;
-    if (chatId) {
-      const text = [
+  let alertOutcome: AlertOutcome | null = null;
+  if (alert) {
+    alertOutcome = await sendOperatorAlert(
+      [
         '🚨 <b>Inboxi sending health</b>',
         `24h failure rate: <b>${failPct}%</b> (${stats.last24hFailed}/${stats.last24hTotal})`,
         'Check Admin → Outbox for failing messages.',
-      ].join('\n');
-      await sendTelegramMessage({ botToken: process.env.TELEGRAM_BOT_TOKEN }, chatId, text).catch(
-        () => {},
-      );
-    }
+      ].join('\n'),
+    );
   }
 
-  return NextResponse.json({ ok: true, failPct, last24hTotal: stats.last24hTotal, alerted: alert });
+  // Report the alert outcome, so a monitor that computes a problem but cannot
+  // page anyone shows up in the cron response instead of failing silently.
+  return NextResponse.json({
+    ok: true,
+    failPct,
+    last24hTotal: stats.last24hTotal,
+    alerted: alert,
+    alertDelivered: alertOutcome?.delivered ?? null,
+    alertReason: alertOutcome && !alertOutcome.delivered ? alertOutcome.reason : undefined,
+  });
 }

@@ -7,6 +7,7 @@ import { CopyButton } from '@/components/CopyButton';
 import { DomainActions } from '@/components/DomainActions';
 import { FixDnsButton } from '@/components/FixDnsButton';
 import { ModuleActionForm } from '@/components/ModuleActionForm';
+import { DangerButton } from '@/components/admin/DangerButton';
 import {
   setDomainAvailability,
   deleteDomain,
@@ -144,12 +145,11 @@ export default async function DomainDetailPage({ params }: { params: Promise<{ i
       <div className="flex flex-wrap items-center gap-2">
         <DomainActions id={domain.id} isActive={domain.isActive} />
         {realMailboxes === 0 && (
-          <form action={deleteDomain}>
-            <input type="hidden" name="id" value={domain.id} />
-            <button className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50">
-              Delete
-            </button>
-          </form>
+          <DangerButton
+            action={deleteDomain}
+            hidden={{ id: domain.id }}
+            confirmText={`Delete ${domain.name}? This also deletes its catch-all and every message received on it. This cannot be undone.`}
+          />
         )}
       </div>
 

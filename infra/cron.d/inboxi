@@ -1,0 +1,19 @@
+# Inboxi scheduled jobs. Installed to /etc/cron.d/inboxi by infra/deploy.sh.
+#
+# These three endpoints are the platform's monitors and its scheduled sender.
+# They used to live only in root's crontab on the server, which meant they were
+# invisible in code review and would vanish silently if the box was rebuilt.
+#
+# Alert delivery is configured in Admin -> Settings -> Alerts (not here).
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+# Dispatch mail queued by Compose Studio's scheduler.
+* * * * *    root  bash /opt/inboxi/infra/cron-tick.sh scheduled-sends  >/dev/null 2>&1
+
+# Outbound failure-rate monitor; pages the owner past its threshold.
+*/15 * * * * root  bash /opt/inboxi/infra/cron-tick.sh sending-health   >/dev/null 2>&1
+
+# Re-verify DNS + reputation for every active domain; self-heals DKIM.
+0 * * * *    root  bash /opt/inboxi/infra/cron-tick.sh deliverability   >/dev/null 2>&1

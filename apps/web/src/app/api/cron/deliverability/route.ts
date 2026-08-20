@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@inboxi/db';
-import { sendTelegramMessage } from '@inboxi/integrations/telegram';
+import { sendOperatorAlert, type AlertOutcome } from '@/lib/alerts';
 import { verifyDomainDns, runReputationScan, getDeliverability } from '@/lib/domain-health';
 
 export const dynamic = 'force-dynamic';
@@ -45,21 +45,23 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Alert via Telegram (first active integration) when something regressed.
-  if (problems.length > 0 && process.env.TELEGRAM_BOT_TOKEN) {
-    const integration = await prisma.integration.findFirst({
-      where: { kind: 'TELEGRAM', isActive: true },
-    });
-    const chatId = (integration?.config as { chatId?: string } | null)?.chatId;
-    if (chatId) {
-      const text = ['⚠️ <b>Inboxi deliverability check</b>']
+  // Page the platform owner when something regressed.
+  let alertOutcome: AlertOutcome | null = null;
+  if (problems.length > 0) {
+    alertOutcome = await sendOperatorAlert(
+      ['⚠️ <b>Inboxi deliverability check</b>']
         .concat(problems.map((p) => `• ${p.domain} (${p.score}/100): ${p.issues.join(', ')}`))
-        .join('\n');
-      await sendTelegramMessage({ botToken: process.env.TELEGRAM_BOT_TOKEN }, chatId, text).catch(
-        () => {},
-      );
-    }
+        .join('\n'),
+    );
   }
 
-  return NextResponse.json({ ok: true, checked: domains.length, problems });
+  // Report the alert outcome, so a monitor that finds problems but cannot page
+  // anyone shows up in the cron response instead of failing silently.
+  return NextResponse.json({
+    ok: true,
+    checked: domains.length,
+    problems,
+    alertDelivered: alertOutcome?.delivered ?? null,
+    alertReason: alertOutcome && !alertOutcome.delivered ? alertOutcome.reason : undefined,
+  });
 }
