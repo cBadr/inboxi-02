@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { prisma } from '@inboxi/db';
 import { requireUser } from '@/lib/session';
 import { AttachmentList } from '@/components/AttachmentList';
+import { MessageBody } from '@/components/MessageBody';
 import {
   archiveMessageAction,
   starMessageAction,
@@ -44,7 +45,12 @@ export default async function MessageDetailPage({
 
   return (
     <div>
-      <Link href={`/dashboard/mailboxes/${mailbox.id}`} className="text-sm text-gray-500 hover:text-brand">
+      {/* The list column is already visible beside the pane on desktop, so
+          this back link only earns its keep on phones. */}
+      <Link
+        href={`/dashboard/mailboxes/${mailbox.id}`}
+        className="text-sm text-gray-500 hover:text-brand md:hidden"
+      >
         ← {mailbox.address}
       </Link>
 
@@ -95,19 +101,7 @@ export default async function MessageDetailPage({
         </div>
 
         <div className="p-4">
-          {message.htmlBody ? (
-            // Rendered in a sandboxed iframe to neutralise scripts/trackers.
-            <iframe
-              title="message"
-              sandbox=""
-              className="h-[60vh] w-full rounded border"
-              srcDoc={message.htmlBody}
-            />
-          ) : (
-            <pre className="whitespace-pre-wrap break-words text-sm">
-              {message.textBody || '(no content)'}
-            </pre>
-          )}
+          <MessageBody html={message.htmlBody} text={message.textBody} />
         </div>
 
         {message.attachments.length > 0 && (

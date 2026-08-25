@@ -3,6 +3,8 @@ export * from './temp-address';
 export * from './template';
 export * from './validation';
 export * from './settings';
+export * from './retention';
+export * from './mail-html';
 export * from './otp';
 export * from './domain-policy';
 export * from './google';

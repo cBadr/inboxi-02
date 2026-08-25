@@ -2,6 +2,7 @@ import { requireAdmin } from '@/lib/session';
 import { getSetting } from '@/lib/settings';
 import { alertingStatus } from '@/lib/alerts';
 import { TempMailSettingsForm } from '@/components/TempMailSettingsForm';
+import { RetentionSettingsForm } from '@/components/RetentionSettingsForm';
 import { ModuleActionForm } from '@/components/ModuleActionForm';
 import { saveGeneralSettings, saveAlertSettings, sendTestAlert } from '../actions';
 
@@ -9,15 +10,18 @@ export const dynamic = 'force-dynamic';
 
 export default async function AdminSettingsPage() {
   await requireAdmin();
-  const [pattern, destruction, gate, siteName, maxSize, alertChatId, alerts] = await Promise.all([
-    getSetting('tempmail.addressPattern'),
-    getSetting('tempmail.destructionMinutes'),
-    getSetting('tempmail.gateAfterMessages'),
-    getSetting('site.name'),
-    getSetting('mail.maxMessageSizeMb'),
-    getSetting('alerts.telegramChatId'),
-    alertingStatus(),
-  ]);
+  const [pattern, destruction, gate, siteName, maxSize, alertChatId, alerts, retentionDays, orphanRetentionDays] =
+    await Promise.all([
+      getSetting('tempmail.addressPattern'),
+      getSetting('tempmail.destructionMinutes'),
+      getSetting('tempmail.gateAfterMessages'),
+      getSetting('site.name'),
+      getSetting('mail.maxMessageSizeMb'),
+      getSetting('alerts.telegramChatId'),
+      alertingStatus(),
+      getSetting('mail.retentionDays'),
+      getSetting('mail.orphanRetentionDays'),
+    ]);
 
   return (
     <div className="max-w-md space-y-8">
@@ -45,6 +49,14 @@ export default async function AdminSettingsPage() {
             />
           </label>
         </ModuleActionForm>
+      </section>
+
+      <section>
+        <h2 className="mb-2 text-sm font-semibold">Message retention</h2>
+        <p className="mb-2 text-xs text-gray-500">
+          How long mailbox messages are kept before the hourly retention job deletes them.
+        </p>
+        <RetentionSettingsForm retentionDays={retentionDays} orphanRetentionDays={orphanRetentionDays} />
       </section>
 
       <section>

@@ -49,13 +49,17 @@ export async function getConnectionInfo(
   const pop3Host = process.env.POP3_HOST ?? mailHost;
   const username = address ?? `you@${domainName}`;
 
-  const [domain, maxSizeSetting, freePlan] = await Promise.all([
+  const [domain, maxSizeSetting, freePlan, retentionSetting] = await Promise.all([
     prisma.domain.findUnique({ where: { name: domainName } }),
     getSetting(SETTING_KEYS.MAIL_MAX_MESSAGE_SIZE_MB).catch(() => undefined),
     prisma.plan.findUnique({ where: { slug: 'free' } }).catch(() => null),
+    // Mirror the same source enforceRetention() reads, so this card never lies
+    // about how long mail actually sticks around.
+    getSetting(SETTING_KEYS.MAIL_RETENTION_DAYS).catch(() => undefined),
   ]);
 
   const maxSize = maxSizeSetting ?? envInt('MAIL_MAX_MESSAGE_SIZE_MB', 25);
+  const retentionDays = retentionSetting ?? freePlan?.retentionDays ?? 1;
 
   const protocols: ProtocolSetting[] = [
     {
@@ -101,7 +105,7 @@ export async function getConnectionInfo(
       maxMessageSizeMb: maxSize,
       dailySendQuota: freePlan?.dailySendQuota ?? 0,
       dailyReceiveQuota: freePlan?.dailyReceiveQuota ?? 100,
-      retentionDays: freePlan?.retentionDays ?? 1,
+      retentionDays,
       dkimSigned: Boolean(domain?.dkimPublicKey && domain?.dkimPrivateKey),
       dmarcPolicy: domain?.dmarcPolicy ?? 'quarantine',
     },

@@ -5,6 +5,7 @@ import { extractOtp } from '@inboxi/shared';
 import { requireAdmin } from '@/lib/session';
 import { AdminComposer } from '@/components/admin/AdminComposer';
 import { AttachmentList } from '@/components/AttachmentList';
+import { MessageBody } from '@/components/MessageBody';
 import {
   archiveMessageAction,
   starMessageAction,
@@ -51,10 +52,18 @@ export default async function AdminMessageDetailPage({
 
   return (
     <div className="space-y-4">
+      {/* back to the list — only needed on mobile, where InboxList hides itself */}
+      <Link
+        href={`/admin/inboxes/${domainId}`}
+        className="block text-sm text-gray-500 transition hover:text-brand md:hidden"
+      >
+        ← Back to inbox
+      </Link>
+
       <div className="flex items-center justify-between">
         <Link
           href={`/admin/inboxes/${domainId}`}
-          className="text-sm text-gray-500 transition hover:text-brand"
+          className="hidden text-sm text-gray-500 transition hover:text-brand md:block"
         >
           ← {domainName}
         </Link>
@@ -150,18 +159,7 @@ export default async function AdminMessageDetailPage({
 
         {/* body */}
         <div className="px-6 py-5">
-          {message.htmlBody ? (
-            <iframe
-              title="message"
-              sandbox=""
-              className="h-[60vh] w-full rounded-lg border bg-white"
-              srcDoc={message.htmlBody}
-            />
-          ) : (
-            <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-gray-800">
-              {message.textBody || '(no content)'}
-            </pre>
-          )}
+          <MessageBody html={message.htmlBody} text={message.textBody} />
         </div>
 
         {/* attachments */}

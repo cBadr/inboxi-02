@@ -6,6 +6,7 @@ import {
   createDomainSchema,
   addressPatternSchema,
   SETTING_KEYS,
+  SETTINGS_DEFAULTS,
   checkDomainDeletion,
 } from '@inboxi/shared';
 import { generateDkimKeyPair } from '@inboxi/integrations/cloudflare';
@@ -92,6 +93,43 @@ export async function updateTempMailSettings(
   await setSetting(SETTING_KEYS.TEMPMAIL_ADDRESS_PATTERN, pattern.data, 'tempmail');
   await setSetting(SETTING_KEYS.TEMPMAIL_DESTRUCTION_MINUTES, destruction, 'tempmail');
   await setSetting(SETTING_KEYS.TEMPMAIL_GATE_AFTER_MESSAGES, gate, 'tempmail');
+
+  revalidatePath('/admin/settings');
+  return { ok: true };
+}
+
+export async function saveRetentionSettings(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  // An empty or unparseable field keeps the current default rather than being
+  // coerced: Number('') is 0, and 0 here would silently mean "keep forever".
+  const clampDays = (raw: FormDataEntryValue | null, fallback: number): number => {
+    const text = String(raw ?? '').trim();
+    if (text === '') return fallback;
+    const parsed = Number(text);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.max(0, Math.min(3650, Math.trunc(parsed)));
+  };
+
+  const retentionDays = clampDays(
+    formData.get('retentionDays'),
+    SETTINGS_DEFAULTS[SETTING_KEYS.MAIL_RETENTION_DAYS],
+  );
+  const orphanRetentionDays = clampDays(
+    formData.get('orphanRetentionDays'),
+    SETTINGS_DEFAULTS[SETTING_KEYS.MAIL_ORPHAN_RETENTION_DAYS],
+  );
+
+  await setSetting(SETTING_KEYS.MAIL_RETENTION_DAYS, retentionDays, 'mail');
+  await setSetting(SETTING_KEYS.MAIL_ORPHAN_RETENTION_DAYS, orphanRetentionDays, 'mail');
+  await writeAudit({
+    actorId: admin.id,
+    action: 'settings.retention.update',
+    entity: 'setting',
+    metadata: { retentionDays, orphanRetentionDays },
+  });
 
   revalidatePath('/admin/settings');
   return { ok: true };
