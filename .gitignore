@@ -38,10 +38,13 @@ Thumbs.db
 packages/db/prisma/*.db
 packages/db/prisma/migrations/dev/
 
-# Mail / runtime data
-data/
-attachments/
-mta-queue/
+# Mail / runtime data. Anchored with a leading slash: an unanchored `dir/`
+# matches at EVERY depth, and `attachments/` silently swallowed the source
+# folder apps/web/src/app/api/attachments/ — that endpoint lived only on the
+# server for months, so no deploy could ever update it.
+/data/
+/attachments/
+/mta-queue/
 
 # Haraka config is generated on the server by infra/setup-haraka.sh
 # (Haraka defaults + customizations). Only our plugins/ and lib/ are tracked.
