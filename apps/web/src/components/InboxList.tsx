@@ -181,10 +181,10 @@ export function InboxList({
   ];
 
   return (
-    // On phones the list and the reading pane share one column, so the list
+    // Below lg the list and the reading pane share one column, so the list
     // steps aside while a message is open.
     <div
-      className={`overflow-hidden rounded-xl border bg-white ${activeId ? 'hidden md:block' : ''}`}
+      className={`overflow-hidden rounded-xl border bg-white ${activeId ? 'hidden lg:block' : ''}`}
     >
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3">
@@ -279,7 +279,7 @@ export function InboxList({
           {query ? 'No messages match your search.' : 'Nothing here.'}
         </div>
       ) : (
-        <ul className="divide-y divide-gray-100 md:max-h-[calc(100vh-14rem)] md:overflow-y-auto">
+        <ul className="divide-y divide-gray-100 lg:max-h-[calc(100vh-14rem)] lg:overflow-y-auto">
           {visible.map((m) => {
             const isActive = m.id === activeId;
             const isRead = readOf(m);
@@ -337,7 +337,7 @@ export function InboxList({
                   </div>
                 </Link>
 
-                <div className="flex shrink-0 items-center gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                <div className="absolute right-2 top-1/2 hidden -translate-y-1/2 items-center gap-1 rounded-lg border bg-white/95 px-1 py-0.5 shadow-sm group-hover:flex group-focus-within:flex">
                   <a href={`${basePath}/${m.id}`} target="_blank" rel="noreferrer" title="Open in new tab" className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-brand">
                     ↗
                   </a>

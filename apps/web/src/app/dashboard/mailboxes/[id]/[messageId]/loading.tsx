@@ -3,7 +3,7 @@
 export default function MessageDetailLoading() {
   return (
     <div className="animate-pulse">
-      <div className="mb-3 h-4 w-32 rounded bg-gray-200 md:hidden" />
+      <div className="mb-3 h-4 w-32 rounded bg-gray-200 lg:hidden" />
       <div className="rounded-lg border bg-white">
         <div className="flex items-start justify-between border-b p-4">
           <div className="space-y-2">

@@ -95,7 +95,7 @@ export default async function AdminDomainInboxLayout({
       <ConnectionInfo info={connection} />
 
       {/* reading pane: list on the left, detail (or empty state) on the right */}
-      <div className="grid gap-4 md:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] md:items-start">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:items-start">
         <div className="min-w-0">
           <InboxList
             scopeId={domainId}
@@ -109,7 +109,7 @@ export default async function AdminDomainInboxLayout({
             }}
           />
         </div>
-        <div className="min-w-0 md:sticky md:top-6 md:max-h-[calc(100vh-3rem)] md:overflow-y-auto">
+        <div className="min-w-0 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
           {children}
         </div>
       </div>

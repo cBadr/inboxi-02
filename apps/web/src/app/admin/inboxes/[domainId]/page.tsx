@@ -3,7 +3,7 @@
 // is opened.
 export default function AdminDomainInboxEmptyState() {
   return (
-    <div className="hidden h-[60vh] items-center justify-center rounded-xl border bg-white text-sm text-gray-400 md:flex">
+    <div className="hidden h-[60vh] items-center justify-center rounded-xl border bg-white text-sm text-gray-500 lg:flex">
       Select a message to read it here
     </div>
   );

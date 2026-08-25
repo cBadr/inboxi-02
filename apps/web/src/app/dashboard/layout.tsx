@@ -15,8 +15,11 @@ const NAV = [
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
   return (
-    <div className="mx-auto flex max-w-6xl gap-6 px-4 py-8">
-      <aside className="w-52 shrink-0">
+    // The sidebar used to be w-52 shrink-0 at every width, so a 375px phone was
+    // left with about 110px of content. It stacks above the page on small
+    // screens now and only becomes a column when there is room for one.
+    <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6 lg:flex-row lg:py-8">
+      <aside className="w-full shrink-0 lg:w-52">
         <div className="mb-4 text-sm text-gray-500">
           {user.name || user.email}
           {user.roleName === 'admin' && (
@@ -25,18 +28,20 @@ export default async function DashboardLayout({ children }: { children: React.Re
             </Link>
           )}
         </div>
-        <nav className="space-y-1">
+        {/* Horizontal, scrollable strip on phones; a stacked list once the
+            sidebar has its own column. */}
+        <nav className="flex gap-1 overflow-x-auto lg:block lg:space-y-1 lg:overflow-visible">
           {NAV.map((n) => (
             <Link
               key={n.href}
               href={n.href}
-              className="block rounded px-3 py-2 text-sm hover:bg-gray-100"
+              className="shrink-0 rounded px-3 py-2 text-sm hover:bg-gray-100 lg:block"
             >
               {n.label}
             </Link>
           ))}
         </nav>
-        <div className="mt-6">
+        <div className="mt-4 hidden lg:mt-6 lg:block">
           <LogoutButton />
         </div>
       </aside>

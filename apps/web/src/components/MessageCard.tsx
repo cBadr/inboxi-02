@@ -47,34 +47,35 @@ export function MessageCard({
           keep on phones, where the list steps aside. */}
       <Link
         href={backHref}
-        className="mb-3 inline-block text-sm text-gray-500 transition hover:text-brand md:hidden"
+        className="mb-3 inline-block text-sm text-gray-500 transition hover:text-brand lg:hidden"
       >
         ← {backLabel}
       </Link>
 
       <article className="overflow-hidden rounded-xl border bg-white shadow-sm">
         <header className="border-b px-4 py-4 sm:px-6 sm:py-5">
-          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-            {/* Wraps rather than truncates: a clipped subject is the one piece
-                of a message you cannot recover by reading further. */}
-            <h1 className="min-w-0 flex-1 break-words text-xl font-semibold tracking-tight text-gray-900 sm:text-2xl">
-              {subject || <span className="text-gray-500">(no subject)</span>}
-            </h1>
-            {actions && (
-              <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
-            )}
-          </div>
+          {/* The subject owns its own line. Sharing a flex row with a shrink-0
+              action bar cost it everything: measured on the live site, the bar
+              took 393px of a 439px row and the subject rendered 30px wide —
+              one character per line. Wrapping, never truncating: a clipped
+              subject is the one part of a message you cannot recover by
+              reading on. */}
+          <h1 className="break-words text-lg font-semibold tracking-tight text-gray-900 sm:text-xl">
+            {subject || <span className="text-gray-500">(no subject)</span>}
+          </h1>
 
-          <div className="mt-4 flex flex-wrap items-start gap-3">
+          <div className="mt-3 flex flex-wrap items-start gap-x-3 gap-y-2">
             <span
               aria-hidden="true"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
               style={{ backgroundColor: avatarColor(fromAddress) }}
             >
               {initials(fromAddress)}
             </span>
 
-            <div className="min-w-0 flex-1">
+            {/* basis-48 keeps the sender readable and pushes the timestamp to
+                its own line rather than letting it squeeze this to nothing. */}
+            <div className="min-w-0 flex-1 basis-48">
               <div className="flex flex-wrap items-baseline gap-x-2">
                 <span className="font-medium text-gray-900">{senderName(fromAddress)}</span>
                 <span className="break-all font-mono text-xs text-gray-500">
@@ -82,14 +83,14 @@ export function MessageCard({
                 </span>
               </div>
               <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
-                <span>
+                <span className="min-w-0">
                   to <span className="break-all font-mono text-gray-600">{toAddress}</span>
                 </span>
                 <CopyButton value={toAddress} label="Copy address" />
               </div>
             </div>
 
-            <div className="flex shrink-0 flex-wrap items-center gap-2 text-xs text-gray-500">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
               <LocalTime iso={receivedAt} />
               {typeof sizeBytes === 'number' && sizeBytes > 0 && (
                 <span className="rounded bg-gray-100 px-1.5 py-0.5">{formatBytes(sizeBytes)}</span>
@@ -101,6 +102,10 @@ export function MessageCard({
               )}
             </div>
           </div>
+
+          {actions && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">{actions}</div>
+          )}
         </header>
 
         {/* Codes sit above the body on purpose: for most temp-mail readers they

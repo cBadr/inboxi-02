@@ -75,7 +75,7 @@ export default async function MailboxLayout({
         <button className="rounded border px-2 py-1 text-xs hover:bg-gray-50">Save</button>
       </form>
 
-      <div className="grid gap-4 md:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] md:items-start">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:items-start">
         <div className="min-w-0">
           <InboxList
             scopeId={mailbox.id}
@@ -89,7 +89,7 @@ export default async function MailboxLayout({
             }}
           />
         </div>
-        <div className="min-w-0 md:sticky md:top-6 md:max-h-[calc(100vh-3rem)] md:overflow-y-auto">
+        <div className="min-w-0 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">
           {children}
         </div>
       </div>

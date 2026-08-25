@@ -4,7 +4,7 @@
 // screen.
 export default function MailboxInboxPage() {
   return (
-    <div className="hidden h-[calc(100vh-14rem)] items-center justify-center rounded-xl border bg-white text-sm text-gray-400 md:flex">
+    <div className="hidden h-[calc(100vh-14rem)] items-center justify-center rounded-xl border bg-white text-sm text-gray-500 lg:flex">
       Select a message to read it here
     </div>
   );

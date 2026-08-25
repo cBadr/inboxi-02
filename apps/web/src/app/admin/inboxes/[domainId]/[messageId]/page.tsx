@@ -54,7 +54,7 @@ export default async function AdminMessageDetailPage({
       {/* The mobile back link is MessageCard's own; this is the desktop one,
           which names the domain because the list beside it already shows the
           messages. Two links to the same place on one screen is noise. */}
-      <div className="hidden md:block">
+      <div className="hidden lg:block">
         <Link
           href={`/admin/inboxes/${domainId}`}
           className="text-sm text-gray-500 transition hover:text-brand"

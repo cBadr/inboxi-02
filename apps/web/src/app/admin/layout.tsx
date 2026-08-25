@@ -24,8 +24,10 @@ const NAV = [
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const admin = await requireAdmin();
   return (
-    <div className="mx-auto flex max-w-6xl gap-6 px-4 py-8">
-      <aside className="w-56 shrink-0">
+    // A fixed 224px sidebar at every width left a phone with under 100px of
+    // content. It stacks above the page until there is room for a column.
+    <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6 lg:flex-row lg:py-8">
+      <aside className="w-full shrink-0 lg:w-56">
         <div className="mb-4">
           <div className="text-xs uppercase tracking-wide text-gray-400">Admin</div>
           <div className="text-sm text-gray-600">{admin.email}</div>
@@ -33,18 +35,18 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             ← User dashboard
           </Link>
         </div>
-        <nav className="space-y-1">
+        <nav className="flex gap-1 overflow-x-auto lg:block lg:space-y-1 lg:overflow-visible">
           {NAV.map((n) => (
             <Link
               key={n.href}
               href={n.href}
-              className="block rounded px-3 py-2 text-sm hover:bg-gray-100"
+              className="shrink-0 whitespace-nowrap rounded px-3 py-2 text-sm hover:bg-gray-100 lg:block"
             >
               {n.label}
             </Link>
           ))}
         </nav>
-        <div className="mt-6">
+        <div className="mt-4 hidden lg:mt-6 lg:block">
           <LogoutButton />
         </div>
       </aside>
