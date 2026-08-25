@@ -67,6 +67,11 @@ export async function verifyOwnership(formData: FormData): Promise<void> {
 
 // ── Custom DNS records via Cloudflare ────────────────────────
 export async function listDnsRecords(domainId: string): Promise<CloudflareRecord[]> {
+  // This file is 'use server', so every export here is a public HTTP endpoint.
+  // This was the only one of the admin actions without a guard, and it returns
+  // a domain's live Cloudflare records — DKIM selectors included — to anyone
+  // who can name a domain id.
+  await requireAdmin();
   const domain = await prisma.domain.findUnique({ where: { id: domainId } });
   const client = cf();
   if (!domain?.cloudflareZoneId || !client) return [];
