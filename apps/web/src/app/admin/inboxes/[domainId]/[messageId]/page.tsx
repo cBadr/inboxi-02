@@ -1,11 +1,10 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@inboxi/db';
-import { extractOtp } from '@inboxi/shared';
+import { extractCodes } from '@inboxi/shared';
 import { requireAdmin } from '@/lib/session';
 import { AdminComposer } from '@/components/admin/AdminComposer';
-import { AttachmentList } from '@/components/AttachmentList';
-import { MessageBody } from '@/components/MessageBody';
+import { MessageCard } from '@/components/MessageCard';
 import {
   archiveMessageAction,
   starMessageAction,
@@ -43,158 +42,92 @@ export default async function AdminMessageDetailPage({
     await prisma.message.update({ where: { id: message.id }, data: { isRead: true } });
   }
 
-  const otp = extractOtp({
+  const codes = extractCodes({
     subject: message.subject ?? undefined,
     text: message.textBody ?? undefined,
-  });
+    html: message.htmlBody ?? undefined,
+  }).map((c) => c.code);
   const domainName = message.domain.name;
-  const sizeKb = message.sizeBytes ? Math.max(1, Math.round(message.sizeBytes / 1024)) : null;
 
   return (
     <div className="space-y-4">
-      {/* back to the list — only needed on mobile, where InboxList hides itself */}
-      <Link
-        href={`/admin/inboxes/${domainId}`}
-        className="block text-sm text-gray-500 transition hover:text-brand md:hidden"
-      >
-        ← Back to inbox
-      </Link>
-
-      <div className="flex items-center justify-between">
+      {/* The mobile back link is MessageCard's own; this is the desktop one,
+          which names the domain because the list beside it already shows the
+          messages. Two links to the same place on one screen is noise. */}
+      <div className="hidden md:block">
         <Link
           href={`/admin/inboxes/${domainId}`}
-          className="hidden text-sm text-gray-500 transition hover:text-brand md:block"
+          className="text-sm text-gray-500 transition hover:text-brand"
         >
           ← {domainName}
         </Link>
-        <div className="flex items-center gap-2">
-          <AdminComposer
-            domains={[domainName]}
-            defaultFrom={message.toAddress}
-            defaultTo={message.fromAddress}
-            defaultSubject={`Re: ${message.subject ?? ''}`}
-            triggerLabel="Reply"
-            triggerClassName="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3.5 py-1.5 text-sm font-medium text-white transition hover:bg-brand-dark"
-          />
-          <AdminComposer
-            domains={[domainName]}
-            defaultFrom={message.toAddress}
-            defaultSubject={`Fwd: ${message.subject ?? ''}`}
-            triggerLabel="Forward"
-            triggerClassName="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3.5 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
-          />
-          <form action={starMessageAction}>
-            <input type="hidden" name="id" value={message.id} />
-            <input type="hidden" name="domainId" value={domainId} />
-            <input type="hidden" name="starred" value={String(!message.isStarred)} />
-            <button
-              title={message.isStarred ? 'Unstar' : 'Star'}
-              className={`rounded-lg border bg-white px-2.5 py-1.5 text-sm transition hover:bg-gray-50 ${message.isStarred ? 'text-amber-400' : 'text-gray-500'}`}
-            >
-              {message.isStarred ? '★' : '☆'}
-            </button>
-          </form>
-          <form action={archiveMessageAction}>
-            <input type="hidden" name="id" value={message.id} />
-            <input type="hidden" name="domainId" value={domainId} />
-            <input type="hidden" name="archived" value={String(!message.isArchived)} />
-            <button className="rounded-lg border bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50">
-              {message.isArchived ? 'Unarchive' : 'Archive'}
-            </button>
-          </form>
-          <form action={deleteMessageAction}>
-            <input type="hidden" name="id" value={message.id} />
-            <input type="hidden" name="domainId" value={domainId} />
-            <button className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50">
-              Delete
-            </button>
-          </form>
-        </div>
       </div>
 
-      <article className="overflow-hidden rounded-xl border bg-white">
-        {/* subject bar */}
-        <div className="border-b px-6 py-5">
-          <div className="flex items-start justify-between gap-3">
-            <h1 className="text-xl font-semibold text-gray-900">
-              {message.subject || '(no subject)'}
-            </h1>
-            {otp && (
-              <span className="shrink-0 rounded-lg bg-green-50 px-3 py-1 font-mono text-sm font-semibold text-green-700 ring-1 ring-green-200">
-                Code: {otp.code}
-              </span>
-            )}
-          </div>
-
-          {/* sender row */}
-          <div className="mt-4 flex items-center gap-3">
-            <span
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
-              style={{ backgroundColor: avatarColor(message.fromAddress) }}
-            >
-              {initials(message.fromAddress)}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-gray-900">{senderName(message.fromAddress)}</span>
-                <span className="truncate font-mono text-xs text-gray-400">
-                  &lt;{message.fromAddress}&gt;
-                </span>
-              </div>
-              <div className="text-xs text-gray-500">
-                to <span className="font-mono">{message.toAddress}</span>
-              </div>
-            </div>
-            <div className="shrink-0 text-right text-xs text-gray-400">
-              <div>{new Date(message.receivedAt).toLocaleString()}</div>
-              <div className="mt-0.5 flex items-center justify-end gap-2">
-                {sizeKb && <span>{sizeKb} KB</span>}
-                {message.isSpam && (
-                  <span className="rounded bg-red-50 px-1.5 py-0.5 text-red-600">spam</span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* body */}
-        <div className="px-6 py-5">
-          <MessageBody html={message.htmlBody} text={message.textBody} />
-        </div>
-
-        {/* attachments */}
-        {message.attachments.length > 0 && (
-          <div className="border-t bg-gray-50/50 px-6 py-4">
-            <AttachmentList
-              attachments={message.attachments.map((a) => ({
-                id: a.id,
-                filename: a.filename,
-                contentType: a.contentType,
-                sizeBytes: a.sizeBytes,
-                hasContent: a.storageKey === 'db',
-              }))}
+      <MessageCard
+        subject={message.subject}
+        fromAddress={message.fromAddress}
+        toAddress={message.toAddress}
+        receivedAt={message.receivedAt.toISOString()}
+        sizeBytes={message.sizeBytes}
+        isSpam={message.isSpam}
+        html={message.htmlBody}
+        text={message.textBody}
+        codes={codes}
+        attachments={message.attachments.map((a) => ({
+          id: a.id,
+          filename: a.filename,
+          contentType: a.contentType,
+          sizeBytes: a.sizeBytes,
+          hasContent: a.storageKey === 'db',
+        }))}
+        backHref={`/admin/inboxes/${domainId}`}
+        backLabel={domainName}
+        actions={
+          <>
+            <AdminComposer
+              domains={[domainName]}
+              defaultFrom={message.toAddress}
+              defaultTo={message.fromAddress}
+              defaultSubject={`Re: ${message.subject ?? ''}`}
+              triggerLabel="Reply"
+              triggerClassName="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3.5 py-1.5 text-sm font-medium text-white transition hover:bg-brand-dark"
             />
-          </div>
-        )}
-      </article>
+            <AdminComposer
+              domains={[domainName]}
+              defaultFrom={message.toAddress}
+              defaultSubject={`Fwd: ${message.subject ?? ''}`}
+              triggerLabel="Forward"
+              triggerClassName="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3.5 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+            />
+            <form action={starMessageAction}>
+              <input type="hidden" name="id" value={message.id} />
+              <input type="hidden" name="domainId" value={domainId} />
+              <input type="hidden" name="starred" value={String(!message.isStarred)} />
+              <button
+                title={message.isStarred ? 'Unstar' : 'Star'}
+                className={`rounded-lg border bg-white px-2.5 py-1.5 text-sm transition hover:bg-gray-50 ${message.isStarred ? 'text-amber-400' : 'text-gray-500'}`}
+              >
+                {message.isStarred ? '★' : '☆'}
+              </button>
+            </form>
+            <form action={archiveMessageAction}>
+              <input type="hidden" name="id" value={message.id} />
+              <input type="hidden" name="domainId" value={domainId} />
+              <input type="hidden" name="archived" value={String(!message.isArchived)} />
+              <button className="rounded-lg border bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50">
+                {message.isArchived ? 'Unarchive' : 'Archive'}
+              </button>
+            </form>
+            <form action={deleteMessageAction}>
+              <input type="hidden" name="id" value={message.id} />
+              <input type="hidden" name="domainId" value={domainId} />
+              <button className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50">
+                Delete
+              </button>
+            </form>
+          </>
+        }
+      />
     </div>
   );
-}
-
-/* — display helpers — */
-function senderName(addr: string): string {
-  const local = addr.split('@')[0] ?? addr;
-  return local.replace(/[._-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-}
-function initials(addr: string): string {
-  const name = senderName(addr).trim();
-  const parts = name.split(/\s+/);
-  if (parts.length >= 2) return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
-  return (addr[0] ?? '?').toUpperCase();
-}
-const AVATAR_COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
-function avatarColor(addr: string): string {
-  let h = 0;
-  for (let i = 0; i < addr.length; i++) h = (h * 31 + addr.charCodeAt(i)) >>> 0;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length]!;
 }

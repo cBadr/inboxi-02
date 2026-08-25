@@ -7,7 +7,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./google": "./src/google.ts"
+    "./google": "./src/google.ts",
+    "./mail-html": "./src/mail-html.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

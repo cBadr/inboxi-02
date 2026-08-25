@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { avatarColor, initials, senderName } from '@/lib/sender-display';
 
 export interface InboxMessage {
   id: string;
@@ -315,7 +316,7 @@ export function InboxList({
                     <span className={`truncate text-sm ${isRead ? 'text-gray-700' : 'font-semibold text-gray-900'}`}>
                       {senderName(m.fromAddress)}
                     </span>
-                    <span className="shrink-0 text-xs text-gray-400">{timeAgo(m.receivedAt)}</span>
+                    <span className="shrink-0 text-xs text-gray-500">{timeAgo(m.receivedAt)}</span>
                   </div>
                   <div className={`truncate text-sm ${isRead ? 'text-gray-600' : 'text-gray-900'}`}>
                     {m.subject || '(no subject)'}
@@ -332,7 +333,7 @@ export function InboxList({
                         Code {m.otpCode}
                       </span>
                     )}
-                    {m.snippet && <span className="truncate text-gray-400">{m.snippet}</span>}
+                    {m.snippet && <span className="truncate text-gray-500">{m.snippet}</span>}
                   </div>
                 </Link>
 
@@ -372,22 +373,6 @@ export function InboxList({
 
 const barBtn = 'rounded-md border bg-white px-2.5 py-1 text-gray-600 hover:bg-gray-50 disabled:opacity-50';
 
-function senderName(addr: string): string {
-  const local = addr.split('@')[0] ?? addr;
-  return local.replace(/[._-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-}
-function initials(addr: string): string {
-  const name = senderName(addr).trim();
-  const parts = name.split(/\s+/);
-  if (parts.length >= 2) return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
-  return (addr[0] ?? '?').toUpperCase();
-}
-const AVATAR_COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
-function avatarColor(addr: string): string {
-  let h = 0;
-  for (let i = 0; i < addr.length; i++) h = (h * 31 + addr.charCodeAt(i)) >>> 0;
-  return AVATAR_COLORS[h % AVATAR_COLORS.length]!;
-}
 function timeAgo(date: string): string {
   const diff = Date.now() - new Date(date).getTime();
   const mins = Math.floor(diff / 60000);

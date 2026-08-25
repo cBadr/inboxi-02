@@ -9,9 +9,13 @@
 /** sandbox flags for the message iframe: popups only, never scripts or same-origin. */
 export const MESSAGE_IFRAME_SANDBOX = 'allow-popups allow-popups-to-escape-sandbox';
 
+// 16px on phones is the floor for body text; desktops can afford the slightly
+// tighter 15px. Only unstyled mail is affected — a sender's own CSS still wins.
 const MESSAGE_STYLE =
-  'body{margin:0;padding:12px;font:14px/1.6 system-ui,sans-serif;color:#111827;' +
-  'word-break:break-word}img{max-width:100%;height:auto}a{color:#4f46e5}';
+  'body{margin:0;padding:14px;background:#fff;font:16px/1.65 system-ui,sans-serif;' +
+  'color:#111827;word-break:break-word}' +
+  '@media(min-width:768px){body{font-size:15px}}' +
+  'img{max-width:100%;height:auto}a{color:#4f46e5}';
 
 const INJECTED_HEAD =
   '<meta charset="utf-8"><meta name="referrer" content="no-referrer"><base target="_blank">' +

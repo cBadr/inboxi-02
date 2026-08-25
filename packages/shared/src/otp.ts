@@ -13,34 +13,85 @@ export interface OtpMatch {
   confidence: 'high' | 'medium';
 }
 
-export function extractOtp(input: { subject?: string; text?: string; html?: string }): OtpMatch | null {
-  const haystack = `${input.subject ?? ''}\n${input.text ?? stripHtml(input.html)}`;
-  if (!haystack.trim()) return null;
+export interface CodeMatch {
+  code: string;
+  confidence: 'high' | 'medium';
+}
 
-  const candidates: Array<{ code: string; index: number; pure: boolean }> = [];
+interface Candidate {
+  code: string;
+  index: number;
+  isSixDigit: boolean;
+}
+
+function collectCandidates(haystack: string): Candidate[] {
+  const candidates: Candidate[] = [];
   for (const m of haystack.matchAll(TOKEN_RE)) {
     const raw = m[1]!;
     const normalized = raw.replace(/^[A-Z]?-/, '');
+
+    // A code has digits in it. Without this, an all-caps word in a subject
+    // ("VERIFY YOUR EMAIL") matches the alphanumeric branch and gets presented
+    // to the reader as a verification code.
+    if (!/\d/.test(normalized)) continue;
+    // Four digits starting 19xx/20xx is a year far more often than a code.
+    if (/^(?:19|20)\d{2}$/.test(normalized)) continue;
+
     if (/^\d{4,8}$/.test(normalized) || /^[A-Z0-9]{5,8}$/.test(raw)) {
-      candidates.push({ code: normalized, index: m.index ?? 0, pure: /^\d+$/.test(normalized) });
+      candidates.push({
+        code: normalized,
+        index: m.index ?? 0,
+        isSixDigit: /^\d{6}$/.test(normalized),
+      });
     }
   }
-  if (candidates.length === 0) return null;
+  return candidates;
+}
 
-  // Prefer a candidate near an OTP keyword.
+function isNearKeyword(haystack: string, candidate: Candidate): boolean {
+  const windowStart = Math.max(0, candidate.index - 40);
+  const around = haystack.slice(windowStart, candidate.index + candidate.code.length + 20);
+  return KEYWORDS.test(around);
+}
+
+/** Every distinct code worth offering the reader, best first. */
+export function extractCodes(
+  input: { subject?: string; text?: string; html?: string },
+  limit = 4,
+): CodeMatch[] {
+  // `||` not `??`: a mail whose only content is HTML can arrive with an empty
+  // string for text, and `'' ?? html` keeps the empty string — no codes at all.
+  const haystack = `${input.subject ?? ''}\n${input.text || stripHtml(input.html)}`;
+  if (!haystack.trim()) return [];
+
+  const candidates = collectCandidates(haystack);
+  if (candidates.length === 0) return [];
+
+  const highCodes = new Set<string>();
+  const high: CodeMatch[] = [];
   for (const c of candidates) {
-    const windowStart = Math.max(0, c.index - 40);
-    const around = haystack.slice(windowStart, c.index + c.code.length + 20);
-    if (KEYWORDS.test(around)) {
-      return { code: c.code, confidence: 'high' };
+    if (highCodes.has(c.code)) continue;
+    if (isNearKeyword(haystack, c)) {
+      highCodes.add(c.code);
+      high.push({ code: c.code, confidence: 'high' });
     }
   }
 
-  // Otherwise a lone 6-digit number is the classic OTP shape.
-  const sixDigit = candidates.find((c) => /^\d{6}$/.test(c.code));
-  if (sixDigit) return { code: sixDigit.code, confidence: 'medium' };
+  // The medium tier is the "no keyword anywhere, but a lone six-digit number is
+  // the classic code shape" guess. It only holds while the number is alone: a
+  // message full of six-digit figures is an invoice, not a login code, and
+  // dressing several of them up as codes is worse than offering none.
+  const sixDigit = [...new Set(candidates.filter((c) => c.isSixDigit).map((c) => c.code))];
+  const medium: CodeMatch[] =
+    high.length === 0 && sixDigit.length === 1 && sixDigit[0]
+      ? [{ code: sixDigit[0], confidence: 'medium' }]
+      : [];
 
-  return null;
+  return [...high, ...medium].slice(0, limit);
+}
+
+export function extractOtp(input: { subject?: string; text?: string; html?: string }): OtpMatch | null {
+  return extractCodes(input, 1)[0] ?? null;
 }
 
 function stripHtml(html?: string): string {

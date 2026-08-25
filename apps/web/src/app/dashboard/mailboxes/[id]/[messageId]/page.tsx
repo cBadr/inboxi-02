@@ -1,9 +1,9 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@inboxi/db';
+import { extractCodes } from '@inboxi/shared';
 import { requireUser } from '@/lib/session';
-import { AttachmentList } from '@/components/AttachmentList';
-import { MessageBody } from '@/components/MessageBody';
+import { MessageCard } from '@/components/MessageCard';
 import {
   archiveMessageAction,
   starMessageAction,
@@ -43,81 +43,68 @@ export default async function MessageDetailPage({
     await prisma.message.update({ where: { id: message.id }, data: { isRead: true } });
   }
 
+  const codes = extractCodes({
+    subject: message.subject ?? undefined,
+    text: message.textBody ?? undefined,
+    html: message.htmlBody ?? undefined,
+  }).map((c) => c.code);
+
   return (
-    <div>
-      {/* The list column is already visible beside the pane on desktop, so
-          this back link only earns its keep on phones. */}
-      <Link
-        href={`/dashboard/mailboxes/${mailbox.id}`}
-        className="text-sm text-gray-500 hover:text-brand md:hidden"
-      >
-        ← {mailbox.address}
-      </Link>
-
-      <div className="mt-3 rounded-lg border bg-white">
-        <div className="flex items-start justify-between border-b p-4">
-          <div>
-            <h1 className="text-lg font-semibold">{message.subject || '(no subject)'}</h1>
-            <div className="mt-1 text-sm text-gray-500">
-              From <span className="font-medium">{message.fromAddress}</span> ·{' '}
-              {new Date(message.receivedAt).toLocaleString()}
-            </div>
-            <div className="text-xs text-gray-400">To {message.toAddress}</div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Link
-              href={`/dashboard/compose?from=${encodeURIComponent(message.toAddress)}&to=${encodeURIComponent(message.fromAddress)}&subject=${encodeURIComponent('Re: ' + (message.subject ?? ''))}`}
-              className="rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark"
+    <MessageCard
+      subject={message.subject}
+      fromAddress={message.fromAddress}
+      toAddress={message.toAddress}
+      receivedAt={message.receivedAt.toISOString()}
+      sizeBytes={message.sizeBytes}
+      isSpam={message.isSpam}
+      html={message.htmlBody}
+      text={message.textBody}
+      codes={codes}
+      attachments={message.attachments.map((a) => ({
+        id: a.id,
+        filename: a.filename,
+        contentType: a.contentType,
+        sizeBytes: a.sizeBytes,
+        hasContent: a.storageKey === 'db',
+      }))}
+      backHref={`/dashboard/mailboxes/${mailbox.id}`}
+      backLabel={mailbox.address}
+      actions={
+        <>
+          <Link
+            href={`/dashboard/compose?from=${encodeURIComponent(message.toAddress)}&to=${encodeURIComponent(message.fromAddress)}&subject=${encodeURIComponent('Re: ' + (message.subject ?? ''))}`}
+            className="rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-dark"
+          >
+            Reply
+          </Link>
+          <form action={starMessageAction}>
+            <input type="hidden" name="id" value={message.id} />
+            <input type="hidden" name="mailboxId" value={mailbox.id} />
+            <input type="hidden" name="starred" value={String(!message.isStarred)} />
+            <button
+              title={message.isStarred ? 'Unstar' : 'Star'}
+              className={`rounded-lg border bg-white px-2.5 py-1.5 text-sm hover:bg-gray-50 ${message.isStarred ? 'text-amber-400' : 'text-gray-500'}`}
             >
-              Reply
-            </Link>
-            <form action={starMessageAction}>
-              <input type="hidden" name="id" value={message.id} />
-              <input type="hidden" name="mailboxId" value={mailbox.id} />
-              <input type="hidden" name="starred" value={String(!message.isStarred)} />
-              <button
-                title={message.isStarred ? 'Unstar' : 'Star'}
-                className={`rounded-lg border bg-white px-2.5 py-1.5 text-sm hover:bg-gray-50 ${message.isStarred ? 'text-amber-400' : 'text-gray-500'}`}
-              >
-                {message.isStarred ? '★' : '☆'}
-              </button>
-            </form>
-            <form action={archiveMessageAction}>
-              <input type="hidden" name="id" value={message.id} />
-              <input type="hidden" name="mailboxId" value={mailbox.id} />
-              <input type="hidden" name="archived" value={String(!message.isArchived)} />
-              <button className="rounded-lg border bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
-                {message.isArchived ? 'Unarchive' : 'Archive'}
-              </button>
-            </form>
-            <form action={deleteMessageAction}>
-              <input type="hidden" name="id" value={message.id} />
-              <input type="hidden" name="mailboxId" value={mailbox.id} />
-              <button className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50">
-                Delete
-              </button>
-            </form>
-          </div>
-        </div>
-
-        <div className="p-4">
-          <MessageBody html={message.htmlBody} text={message.textBody} />
-        </div>
-
-        {message.attachments.length > 0 && (
-          <div className="border-t p-4">
-            <AttachmentList
-              attachments={message.attachments.map((a) => ({
-                id: a.id,
-                filename: a.filename,
-                contentType: a.contentType,
-                sizeBytes: a.sizeBytes,
-                hasContent: a.storageKey === 'db',
-              }))}
-            />
-          </div>
-        )}
-      </div>
-    </div>
+              {message.isStarred ? '★' : '☆'}
+            </button>
+          </form>
+          <form action={archiveMessageAction}>
+            <input type="hidden" name="id" value={message.id} />
+            <input type="hidden" name="mailboxId" value={mailbox.id} />
+            <input type="hidden" name="archived" value={String(!message.isArchived)} />
+            <button className="rounded-lg border bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+              {message.isArchived ? 'Unarchive' : 'Archive'}
+            </button>
+          </form>
+          <form action={deleteMessageAction}>
+            <input type="hidden" name="id" value={message.id} />
+            <input type="hidden" name="mailboxId" value={mailbox.id} />
+            <button className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50">
+              Delete
+            </button>
+          </form>
+        </>
+      }
+    />
   );
 }
