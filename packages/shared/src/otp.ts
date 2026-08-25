@@ -37,10 +37,21 @@ function collectCandidates(haystack: string): Candidate[] {
     // Four digits starting 19xx/20xx is a year far more often than a code.
     if (/^(?:19|20)\d{2}$/.test(normalized)) continue;
 
+    // A run of digits hanging off a dot or a slash is a fragment of a longer
+    // identifier, not a code — a DMARC report titled
+    // "Report-ID: <1787636190.228156>" was offering 228156 as one.
+    const index = m.index ?? 0;
+    const before = index > 0 ? haystack[index - 1] : '';
+    const after = haystack[index + raw.length] ?? '';
+    if (before === '.' || before === '/') continue;
+    if ((after === '.' || after === '/') && /\d/.test(haystack[index + raw.length + 1] ?? '')) {
+      continue;
+    }
+
     if (/^\d{4,8}$/.test(normalized) || /^[A-Z0-9]{5,8}$/.test(raw)) {
       candidates.push({
         code: normalized,
-        index: m.index ?? 0,
+        index,
         isSixDigit: /^\d{6}$/.test(normalized),
       });
     }

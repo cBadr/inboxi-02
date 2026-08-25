@@ -70,6 +70,16 @@ describe('extractCodes', () => {
     expect(extractCodes({ subject: 'VERIFY YOUR EMAIL NOW' })).toEqual([]);
   });
 
+  // Seen live: a DMARC aggregate report was offering the tail of its own
+  // Report-ID as a verification code.
+  it('does not mistake part of a dotted identifier for a code', () => {
+    expect(
+      extractCodes({
+        subject: 'Report Domain: inboxi.online Submitter: yahoo.com Report-ID: <1787636190.228156>',
+      }),
+    ).toEqual([]);
+  });
+
   it('does not mistake a year for a code', () => {
     expect(extractCodes({ text: 'Your confirmation, copyright 2026.' })).toEqual([]);
   });
