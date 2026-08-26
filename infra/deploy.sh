@@ -65,6 +65,15 @@ else
 fi
 
 echo "▶ Building…"
+# next build reads the database: sitemap.xml, robots and the SEO metadata are
+# all DB-driven. PM2 injects .env at *runtime*, and nothing injected it at build
+# time, so every release printed "Environment variable not found: DATABASE_URL"
+# and quietly fell back to defaults — which is why the live sitemap carried two
+# hardcoded URLs and no CMS page.
+set -a
+# shellcheck disable=SC1090,SC1091
+. "$APP_DIR/.env"
+set +a
 pnpm build
 
 echo "▶ Reloading Node services (PM2)…"
