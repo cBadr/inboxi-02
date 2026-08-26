@@ -83,7 +83,7 @@ set +a
 # died on its own limit instead, which is the same outage by another name. This
 # build genuinely needs ~2 GB, so a release requires the outbound MTA's memory
 # to be free — stop haraka-outbound for the build window when its queue is deep.
-NODE_OPTIONS="--max-old-space-size=2560 ${NODE_OPTIONS:-}" pnpm build --concurrency=1
+NODE_OPTIONS="--max-old-space-size=2048 ${NODE_OPTIONS:-}" pnpm build --concurrency=1
 
 echo "▶ Reloading Node services (PM2)…"
 if pm2 describe inboxi-web > /dev/null 2>&1; then

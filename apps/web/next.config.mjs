@@ -8,6 +8,13 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '5mb',
     },
+    // The production box has 2 vCPUs and 3.9 GB with no swap. next build
+    // spawns one worker per CPU by default and each may grow to the heap
+    // ceiling, so two of them plus the parent are enough for the kernel to
+    // OOM-kill the build — which wipes .next and leaves the running app with
+    // nothing to restart from. One worker, in-process, fits.
+    cpus: 1,
+    workerThreads: false,
   },
   async rewrites() {
     // Serve the MTA-STS policy at the well-known path (on mta-sts.<domain>).
