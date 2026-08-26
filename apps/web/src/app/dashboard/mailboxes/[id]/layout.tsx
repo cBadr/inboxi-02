@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { prisma } from '@inboxi/db';
 import { extractOtp } from '@inboxi/shared';
 import { requireUser } from '@/lib/session';
+import { listUserFolders } from '@/lib/folders';
 import { setForwarding } from '../../actions';
 import { InboxList, type InboxMessage } from '@/components/InboxList';
 import {
@@ -10,6 +11,7 @@ import {
   setMessagesRead,
   setMessagesStarred,
   deleteMessages,
+  moveMessagesToFolder,
 } from '../../inbox-actions';
 
 export const dynamic = 'force-dynamic';
@@ -30,6 +32,8 @@ export default async function MailboxLayout({
   const mailbox = await prisma.mailbox.findUnique({ where: { id } });
   if (!mailbox || mailbox.userId !== user.id) notFound();
 
+  const folders = await listUserFolders(user.id);
+
   const rows = await prisma.message.findMany({
     where: { mailboxId: mailbox.id },
     orderBy: { receivedAt: 'desc' },
@@ -49,6 +53,7 @@ export default async function MailboxLayout({
     isStarred: m.isStarred,
     isCatchAll: m.mailbox?.type === 'CATCH_ALL',
     attachments: m._count.attachments,
+    folderId: m.folderId,
     otpCode:
       extractOtp({ subject: m.subject ?? undefined, text: m.textBody ?? undefined })?.code ?? null,
   }));
@@ -59,10 +64,18 @@ export default async function MailboxLayout({
         <Link href="/dashboard/mailboxes" className="text-sm text-gray-500 hover:text-brand">
           ← Mailboxes
         </Link>
-        <h1 className="mt-2 font-mono text-xl font-bold text-gray-900">{mailbox.address}</h1>
+        <div className="mt-2 flex flex-wrap items-baseline justify-between gap-2">
+          <h1 className="font-mono text-xl font-bold text-gray-900">{mailbox.address}</h1>
+          <Link href="/dashboard/folders" className="text-sm text-gray-500 hover:text-brand">
+            Manage folders →
+          </Link>
+        </div>
       </div>
 
-      <form action={setForwarding} className="flex items-center gap-2 rounded-xl border bg-white p-3 text-sm">
+      <form
+        action={setForwarding}
+        className="flex items-center gap-2 rounded-xl border bg-white p-3 text-sm"
+      >
         <input type="hidden" name="id" value={mailbox.id} />
         <span className="text-gray-500">Forward to:</span>
         <input
@@ -87,6 +100,8 @@ export default async function MailboxLayout({
               setStarred: setMessagesStarred,
               remove: deleteMessages,
             }}
+            folders={folders}
+            onMoveToFolder={moveMessagesToFolder}
           />
         </div>
         <div className="min-w-0 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto">

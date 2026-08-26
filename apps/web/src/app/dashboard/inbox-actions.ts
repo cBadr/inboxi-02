@@ -9,7 +9,10 @@ import { requireUser } from '@/lib/session';
 // belongs to the signed-in user and only touches messages within it.
 
 async function assertOwnedMailbox(mailboxId: string, userId: string): Promise<boolean> {
-  const mb = await prisma.mailbox.findUnique({ where: { id: mailboxId }, select: { userId: true } });
+  const mb = await prisma.mailbox.findUnique({
+    where: { id: mailboxId },
+    select: { userId: true },
+  });
   return !!mb && mb.userId === userId;
 }
 
@@ -20,7 +23,10 @@ export async function setMessagesArchived(
 ): Promise<void> {
   const user = await requireUser();
   if (ids.length === 0 || !(await assertOwnedMailbox(mailboxId, user.id))) return;
-  await prisma.message.updateMany({ where: { id: { in: ids }, mailboxId }, data: { isArchived: archived } });
+  await prisma.message.updateMany({
+    where: { id: { in: ids }, mailboxId },
+    data: { isArchived: archived },
+  });
   revalidatePath(`/dashboard/mailboxes/${mailboxId}`);
 }
 
@@ -31,7 +37,10 @@ export async function setMessagesRead(
 ): Promise<void> {
   const user = await requireUser();
   if (ids.length === 0 || !(await assertOwnedMailbox(mailboxId, user.id))) return;
-  await prisma.message.updateMany({ where: { id: { in: ids }, mailboxId }, data: { isRead: read } });
+  await prisma.message.updateMany({
+    where: { id: { in: ids }, mailboxId },
+    data: { isRead: read },
+  });
   revalidatePath(`/dashboard/mailboxes/${mailboxId}`);
 }
 
@@ -42,7 +51,10 @@ export async function setMessagesStarred(
 ): Promise<void> {
   const user = await requireUser();
   if (ids.length === 0 || !(await assertOwnedMailbox(mailboxId, user.id))) return;
-  await prisma.message.updateMany({ where: { id: { in: ids }, mailboxId }, data: { isStarred: starred } });
+  await prisma.message.updateMany({
+    where: { id: { in: ids }, mailboxId },
+    data: { isStarred: starred },
+  });
   revalidatePath(`/dashboard/mailboxes/${mailboxId}`);
 }
 
@@ -51,6 +63,37 @@ export async function deleteMessages(mailboxId: string, ids: string[]): Promise<
   if (ids.length === 0 || !(await assertOwnedMailbox(mailboxId, user.id))) return;
   await prisma.message.deleteMany({ where: { id: { in: ids }, mailboxId } });
   revalidatePath(`/dashboard/mailboxes/${mailboxId}`);
+}
+
+/**
+ * File messages into one of the user's folders, or clear the filing with null.
+ *
+ * The folder is checked against the same user as the mailbox: without that,
+ * a crafted call to this public server action could drop somebody else's
+ * message into a folder they own — or file their own mail into a stranger's.
+ */
+export async function moveMessagesToFolder(
+  mailboxId: string,
+  ids: string[],
+  folderId: string | null,
+): Promise<void> {
+  const user = await requireUser();
+  if (ids.length === 0 || !(await assertOwnedMailbox(mailboxId, user.id))) return;
+
+  if (folderId !== null) {
+    const folder = await prisma.folder.findFirst({
+      where: { id: folderId, userId: user.id },
+      select: { id: true },
+    });
+    // Throwing rather than returning quietly: the caller treats "no exception"
+    // as success, clears the selection and refreshes — so a silent return told
+    // the reader their mail was filed when nothing moved.
+    if (!folder) throw new Error('folder_not_found');
+  }
+
+  await prisma.message.updateMany({ where: { id: { in: ids }, mailboxId }, data: { folderId } });
+  revalidatePath(`/dashboard/mailboxes/${mailboxId}`);
+  revalidatePath('/dashboard/folders');
 }
 
 // ── Form actions for the single-message view ──

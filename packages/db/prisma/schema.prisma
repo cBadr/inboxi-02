@@ -176,6 +176,7 @@ model User {
   referralRecords   Referral[]         @relation("ReferralReferrer")
   referredRecords   Referral[]         @relation("ReferralReferred")
   auditLogs         AuditLog[]
+  folders           Folder[]
 
   @@index([roleId])
   @@index([referredById])
@@ -334,6 +335,23 @@ model Mailbox {
   @@index([type])
 }
 
+model Folder {
+  id       String  @id @default(cuid())
+  userId   String
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name     String
+  color    String? // a token name from the app palette, not a raw hex
+  position Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages Message[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
 model Message {
   id        String           @id @default(cuid())
   direction MessageDirection @default(INBOUND)
@@ -367,10 +385,17 @@ model Message {
   receivedAt DateTime @default(now())
   createdAt  DateTime @default(now())
 
+  // Filing is the reader's own organisation of their mail, so a folder belongs
+  // to the user rather than to one mailbox: the same "Invoices" holds mail from
+  // every address they own. Null means the message has not been filed.
+  folderId String?
+  folder   Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
   attachments MessageAttachment[]
 
   @@index([mailboxId])
   @@index([domainId])
+  @@index([folderId])
   @@index([anonymousSessionId])
   @@index([toAddress])
   @@index([receivedAt])

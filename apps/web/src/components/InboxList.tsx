@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { avatarColor, initials, senderName } from '@/lib/sender-display';
+import { folderChipClass, type FolderOption } from '@/lib/folders';
 
 export interface InboxMessage {
   id: string;
@@ -18,6 +19,8 @@ export interface InboxMessage {
   isCatchAll: boolean;
   attachments: number;
   otpCode: string | null;
+  /** Only the user inbox files messages; the admin view leaves this undefined. */
+  folderId?: string | null;
 }
 
 // Server actions are bound to a scope (a domain for admins, a mailbox for users).
@@ -35,11 +38,16 @@ export function InboxList({
   basePath,
   messages,
   actions,
+  folders,
+  onMoveToFolder,
 }: {
   scopeId: string;
   basePath: string; // message links are `${basePath}/${id}`
   messages: InboxMessage[];
   actions: InboxActions;
+  /** Folders belong to the signed-in user, so the admin inbox passes none. */
+  folders?: FolderOption[];
+  onMoveToFolder?: (scopeId: string, ids: string[], folderId: string | null) => Promise<void>;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -48,6 +56,8 @@ export function InboxList({
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  // null = every folder, '' = only unfiled mail, otherwise a folder id.
+  const [folderFilter, setFolderFilter] = useState<string | null>(null);
 
   // The open message is read from the URL rather than held in state: the reading
   // pane is a real route, so a refresh, a shared link and the browser's back
@@ -68,10 +78,7 @@ export function InboxList({
     setLocallyRead((prev) => (prev.has(activeId) ? prev : new Set(prev).add(activeId)));
   }, [activeId]);
 
-  const readOf = useCallback(
-    (m: InboxMessage) => m.isRead || locallyRead.has(m.id),
-    [locallyRead],
-  );
+  const readOf = useCallback((m: InboxMessage) => m.isRead || locallyRead.has(m.id), [locallyRead]);
 
   const counts = useMemo(
     () => ({
@@ -92,6 +99,10 @@ export function InboxList({
       if (tab === 'unread' && (m.isArchived || (readOf(m) && m.id !== activeId))) return false;
       if (tab === 'starred' && (!m.isStarred || m.isArchived)) return false;
       if (tab === 'archived' && !m.isArchived) return false;
+      if (folderFilter !== null) {
+        const filed = m.folderId ?? '';
+        if (filed !== folderFilter) return false;
+      }
       if (!q) return true;
       return (
         m.fromAddress.toLowerCase().includes(q) ||
@@ -99,7 +110,7 @@ export function InboxList({
         (m.snippet ?? '').toLowerCase().includes(q)
       );
     });
-  }, [messages, tab, query, readOf, activeId]);
+  }, [messages, tab, query, readOf, activeId, folderFilter]);
 
   // Keyboard navigation through the reading pane: ↑/↓ (or k/j) step through the
   // visible list, Esc closes the message. Typing in the search box is exempt.
@@ -119,7 +130,8 @@ export function InboxList({
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const el = event.target as HTMLElement | null;
       const tag = el?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable)
+        return;
 
       if (event.key === 'ArrowDown' || event.key === 'j') {
         event.preventDefault();
@@ -211,13 +223,48 @@ export function InboxList({
         />
       </div>
 
+      {/* Filing lives beside the tabs rather than in a third column: at the
+          widths this pane actually gets, a folder rail would take the space the
+          message list needs. */}
+      {folders && folders.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 border-b bg-gray-50/60 px-4 py-2">
+          <FolderChip
+            active={folderFilter === null}
+            onClick={() => setFolderFilter(null)}
+            label="All"
+          />
+          <FolderChip
+            active={folderFilter === ''}
+            onClick={() => setFolderFilter('')}
+            label="Unfiled"
+          />
+          {folders.map((f) => (
+            <FolderChip
+              key={f.id}
+              active={folderFilter === f.id}
+              onClick={() => setFolderFilter(f.id)}
+              label={f.name}
+              // Counted from the messages actually in this list. The folder's
+              // own total spans every address the user owns, and showing that
+              // here promised rows this mailbox cannot produce.
+              count={messages.filter((m) => m.folderId === f.id).length}
+              color={f.color}
+            />
+          ))}
+        </div>
+      )}
+
       {error && (
         <div
           role="status"
           className="flex items-center gap-2 border-b border-red-100 bg-red-50 px-4 py-2 text-sm text-red-700"
         >
           <span className="flex-1">{error}</span>
-          <button type="button" onClick={() => setError(null)} className="text-xs text-red-500 hover:text-red-700">
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="text-xs text-red-500 hover:text-red-700"
+          >
             Dismiss
           </button>
         </div>
@@ -227,10 +274,20 @@ export function InboxList({
       {selected.size > 0 && (
         <div className="flex flex-wrap items-center gap-2 border-b bg-indigo-50/40 px-4 py-2 text-sm">
           <span className="font-medium text-gray-700">{selected.size} selected</span>
-          <button type="button" disabled={pending} onClick={() => run(() => actions.setRead(scopeId, ids(), true))} className={barBtn}>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => run(() => actions.setRead(scopeId, ids(), true))}
+            className={barBtn}
+          >
             Mark read
           </button>
-          <button type="button" disabled={pending} onClick={() => run(() => actions.setRead(scopeId, ids(), false))} className={barBtn}>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => run(() => actions.setRead(scopeId, ids(), false))}
+            className={barBtn}
+          >
             Mark unread
           </button>
           <button
@@ -258,7 +315,32 @@ export function InboxList({
           >
             Delete
           </button>
-          <button type="button" onClick={() => setSelected(new Set())} className="ml-auto text-xs text-gray-500 hover:text-gray-700">
+          {onMoveToFolder && folders && folders.length > 0 && (
+            <select
+              disabled={pending}
+              value=""
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === '') return;
+                const target = ids();
+                run(() => onMoveToFolder(scopeId, target, value === '__none__' ? null : value));
+              }}
+              className="rounded-md border bg-white px-2 py-1 text-gray-600 disabled:opacity-50"
+            >
+              <option value="">Move to…</option>
+              {folders.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+              <option value="__none__">Remove from folder</option>
+            </select>
+          )}
+          <button
+            type="button"
+            onClick={() => setSelected(new Set())}
+            className="ml-auto text-xs text-gray-500 hover:text-gray-700"
+          >
             Clear
           </button>
         </div>
@@ -267,7 +349,12 @@ export function InboxList({
       {/* select-all row */}
       {visible.length > 0 && (
         <div className="flex items-center gap-3 border-b bg-gray-50/60 px-4 py-2 text-xs text-gray-500">
-          <input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} className="h-3.5 w-3.5" />
+          <input
+            type="checkbox"
+            checked={allVisibleSelected}
+            onChange={toggleAll}
+            className="h-3.5 w-3.5"
+          />
           <span>Select all ({visible.length})</span>
           <span className="ml-auto hidden lg:inline">↑↓ move · esc close</span>
         </div>
@@ -288,7 +375,12 @@ export function InboxList({
                 key={m.id}
                 className={`group relative flex items-center gap-3 px-4 py-3 transition hover:bg-gray-50 ${isRead ? '' : 'bg-indigo-50/30'} ${selected.has(m.id) ? 'bg-indigo-50/60' : ''} ${isActive ? 'bg-brand/10 before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-brand hover:bg-brand/10' : ''}`}
               >
-                <input type="checkbox" checked={selected.has(m.id)} onChange={() => toggle(m.id)} className="h-3.5 w-3.5 shrink-0" />
+                <input
+                  type="checkbox"
+                  checked={selected.has(m.id)}
+                  onChange={() => toggle(m.id)}
+                  className="h-3.5 w-3.5 shrink-0"
+                />
                 <button
                   type="button"
                   title={m.isStarred ? 'Unstar' : 'Star'}
@@ -313,7 +405,9 @@ export function InboxList({
                   className="min-w-0 flex-1"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className={`truncate text-sm ${isRead ? 'text-gray-700' : 'font-semibold text-gray-900'}`}>
+                    <span
+                      className={`truncate text-sm ${isRead ? 'text-gray-700' : 'font-semibold text-gray-900'}`}
+                    >
                       {senderName(m.fromAddress)}
                     </span>
                     <span className="shrink-0 text-xs text-gray-500">{timeAgo(m.receivedAt)}</span>
@@ -323,10 +417,14 @@ export function InboxList({
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
                     {m.isCatchAll && (
-                      <span className="rounded bg-purple-100 px-1.5 py-0.5 text-purple-700">catch-all</span>
+                      <span className="rounded bg-purple-100 px-1.5 py-0.5 text-purple-700">
+                        catch-all
+                      </span>
                     )}
                     {m.attachments > 0 && (
-                      <span className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-500">📎 {m.attachments}</span>
+                      <span className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-500">
+                        📎 {m.attachments}
+                      </span>
                     )}
                     {m.otpCode && (
                       <span className="rounded bg-green-100 px-1.5 py-0.5 font-mono font-semibold text-green-800">
@@ -338,13 +436,31 @@ export function InboxList({
                 </Link>
 
                 <div className="absolute right-2 top-1/2 hidden -translate-y-1/2 items-center gap-1 rounded-lg border bg-white/95 px-1 py-0.5 shadow-sm group-hover:flex group-focus-within:flex">
-                  <a href={`${basePath}/${m.id}`} target="_blank" rel="noreferrer" title="Open in new tab" className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-brand">
+                  <a
+                    href={`${basePath}/${m.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Open in new tab"
+                    className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-brand"
+                  >
                     ↗
                   </a>
-                  <button type="button" title={isRead ? 'Mark unread' : 'Mark read'} disabled={pending} onClick={() => run(() => actions.setRead(scopeId, [m.id], !isRead))} className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-brand">
+                  <button
+                    type="button"
+                    title={isRead ? 'Mark unread' : 'Mark read'}
+                    disabled={pending}
+                    onClick={() => run(() => actions.setRead(scopeId, [m.id], !isRead))}
+                    className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-brand"
+                  >
                     {isRead ? '○' : '●'}
                   </button>
-                  <button type="button" title={m.isArchived ? 'Unarchive' : 'Archive'} disabled={pending} onClick={() => run(() => actions.setArchived(scopeId, [m.id], !m.isArchived))} className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-brand">
+                  <button
+                    type="button"
+                    title={m.isArchived ? 'Unarchive' : 'Archive'}
+                    disabled={pending}
+                    onClick={() => run(() => actions.setArchived(scopeId, [m.id], !m.isArchived))}
+                    className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-brand"
+                  >
                     🗄
                   </button>
                   <button
@@ -371,7 +487,38 @@ export function InboxList({
   );
 }
 
-const barBtn = 'rounded-md border bg-white px-2.5 py-1 text-gray-600 hover:bg-gray-50 disabled:opacity-50';
+function FolderChip({
+  active,
+  onClick,
+  label,
+  count,
+  color,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  count?: number;
+  color?: string | null;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`rounded-full px-2.5 py-1 text-xs font-medium ring-1 transition ${
+        active ? 'bg-brand text-white ring-brand' : folderChipClass(color)
+      }`}
+    >
+      {label}
+      {count !== undefined && (
+        <span className={`ml-1 ${active ? 'text-white/80' : 'opacity-70'}`}>{count}</span>
+      )}
+    </button>
+  );
+}
+
+const barBtn =
+  'rounded-md border bg-white px-2.5 py-1 text-gray-600 hover:bg-gray-50 disabled:opacity-50';
 
 function timeAgo(date: string): string {
   const diff = Date.now() - new Date(date).getTime();

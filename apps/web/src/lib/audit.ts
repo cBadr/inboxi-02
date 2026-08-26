@@ -16,6 +16,7 @@ export const AUDIT = {
   USER_QUOTA_CHANGE: 'user.quota_change',
   // access to, and destruction of, customer mail
   MAIL_SEARCH: 'mail.search',
+  MAIL_ADDRESS_LIST: 'mail.address_list',
   MAIL_READ_OUTBOUND: 'mail.read_outbound',
   MESSAGE_DELETE: 'message.delete',
   MESSAGE_ARCHIVE: 'message.archive',

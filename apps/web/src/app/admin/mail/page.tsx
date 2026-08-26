@@ -16,6 +16,7 @@ export default async function AdminMailSearchPage({
     domainId?: string;
     from?: string;
     to?: string;
+    addr?: string;
     hasAttachments?: string;
     page?: string;
   }>;
@@ -26,6 +27,7 @@ export default async function AdminMailSearchPage({
   const domainId = (sp.domainId ?? '').trim();
   const from = (sp.from ?? '').trim();
   const to = (sp.to ?? '').trim();
+  const addr = (sp.addr ?? '').trim();
   const hasAttachments =
     sp.hasAttachments === '1' ? true : sp.hasAttachments === '0' ? false : undefined;
 
@@ -49,6 +51,7 @@ export default async function AdminMailSearchPage({
     domainId.length > 0 ||
     from.length > 0 ||
     to.length > 0 ||
+    addr.length > 0 ||
     hasAttachments !== undefined;
 
   const domains = await prisma.domain.findMany({
@@ -58,6 +61,9 @@ export default async function AdminMailSearchPage({
 
   const where: Prisma.MessageWhereInput = {
     ...(domainId ? { domainId } : {}),
+    // Exact match — this is how the address directory (`/admin/addresses`)
+    // links into a single address, as opposed to `q`'s substring search.
+    ...(addr ? { toAddress: { equals: addr, mode: 'insensitive' as const } } : {}),
     ...(hasAttachments !== undefined
       ? { attachments: hasAttachments ? { some: {} } : { none: {} } }
       : {}),
@@ -127,7 +133,7 @@ export default async function AdminMailSearchPage({
       actorId: admin.id,
       action: AUDIT.MAIL_SEARCH,
       ipAddress: await requestIp(),
-      metadata: { q, domainId, from, to, resultCount: total },
+      metadata: { q, domainId, from, to, addr, resultCount: total },
     });
   }
 
@@ -139,6 +145,7 @@ export default async function AdminMailSearchPage({
       domainId,
       from,
       to,
+      addr,
       hasAttachments: sp.hasAttachments ?? '',
       page,
       ...next,
@@ -147,6 +154,7 @@ export default async function AdminMailSearchPage({
     if (merged.domainId) p.set('domainId', String(merged.domainId));
     if (merged.from) p.set('from', String(merged.from));
     if (merged.to) p.set('to', String(merged.to));
+    if (merged.addr) p.set('addr', String(merged.addr));
     if (merged.hasAttachments) p.set('hasAttachments', String(merged.hasAttachments));
     if (merged.page && Number(merged.page) > 1) p.set('page', String(merged.page));
     const s = p.toString();
@@ -161,6 +169,17 @@ export default async function AdminMailSearchPage({
           Search every mailbox across every domain. Each search is logged.
         </p>
       </div>
+
+      {addr && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-brand/30 bg-brand/5 px-3 py-2 text-sm">
+          <span className="text-gray-600">
+            Showing only <span className="font-mono">{addr}</span>
+          </span>
+          <Link href="/admin/mail" className="text-brand hover:underline">
+            Clear
+          </Link>
+        </div>
+      )}
 
       {/* filters */}
       <form
