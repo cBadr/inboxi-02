@@ -1,7 +1,8 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
-  "globalEnv": ["NODE_ENV"],
+  "//": "turbo runs tasks in a sanitised environment: a variable the shell exports is invisible to a task unless it is declared here. next build resolves sitemap, robots and SEO metadata from the database, so it needs these three — without them the build printed 'Environment variable not found: DATABASE_URL' and fell back to defaults without failing.",
+  "globalEnv": ["NODE_ENV", "DATABASE_URL", "NEXT_PUBLIC_SITE_URL", "APP_URL"],
   "globalDependencies": [".env", "tsconfig.base.json"],
   "tasks": {
     "build": {
