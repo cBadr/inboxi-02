@@ -16,7 +16,8 @@ import { provisionDomainDns } from '@/lib/dns';
 import { verifyDomainDns, runReputationScan, rescanDeliverability } from '@/lib/domain-health';
 import { encryptSecret } from '@/lib/crypto';
 import { syncHostList, ensureCatchAllMailbox } from '@/lib/haraka';
-import { writeAudit } from '@/lib/audit';
+import { writeAudit, AUDIT } from '@/lib/audit';
+import { requestIp } from '@/lib/request-ip';
 import { sendOperatorAlert } from '@/lib/alerts';
 import { hashPassword } from '@/lib/auth';
 
@@ -31,7 +32,9 @@ export async function createDomain(
 ): Promise<ActionResult> {
   await requireAdmin();
   const parsed = createDomainSchema.safeParse({
-    name: String(formData.get('name') ?? '').toLowerCase().trim(),
+    name: String(formData.get('name') ?? '')
+      .toLowerCase()
+      .trim(),
     availability: String(formData.get('availability') ?? 'FREE'),
     dnsProvider: String(formData.get('dnsProvider') ?? 'CLOUDFLARE_PLATFORM'),
   });
@@ -157,7 +160,12 @@ export async function autoFixDns(formData: FormData): Promise<void> {
   const id = String(formData.get('id') ?? '');
   await provisionDomainDns(id);
   await rescanDeliverability(id).catch(() => {});
-  await writeAudit({ actorId: admin.id, action: 'domain.autofix_dns', entity: 'domain', entityId: id });
+  await writeAudit({
+    actorId: admin.id,
+    action: 'domain.autofix_dns',
+    entity: 'domain',
+    entityId: id,
+  });
   revalidatePath(`/admin/domains/${id}`);
   revalidatePath('/admin/domains');
 }
@@ -193,7 +201,12 @@ export async function regenDkim(formData: FormData): Promise<void> {
   // Push the new DKIM record to Cloudflare (and re-verify) automatically.
   await provisionDomainDns(id).catch(() => {});
   await verifyDomainDns(id).catch(() => {});
-  await writeAudit({ actorId: admin.id, action: 'domain.regen_dkim', entity: 'domain', entityId: id });
+  await writeAudit({
+    actorId: admin.id,
+    action: 'domain.regen_dkim',
+    entity: 'domain',
+    entityId: id,
+  });
   revalidatePath(`/admin/domains/${id}`);
 }
 
@@ -243,7 +256,9 @@ export async function deleteDomain(
 export async function assignDomain(formData: FormData): Promise<void> {
   await requireAdmin();
   const domainId = String(formData.get('domainId') ?? '');
-  const email = String(formData.get('email') ?? '').trim().toLowerCase();
+  const email = String(formData.get('email') ?? '')
+    .trim()
+    .toLowerCase();
   if (!email) return;
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) return;
@@ -301,12 +316,29 @@ export async function saveGeneralSettings(
 }
 
 export async function setUserBanned(formData: FormData): Promise<void> {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const id = String(formData.get('id') ?? '');
   const banned = String(formData.get('banned') ?? 'false') === 'true';
+
+  // Mirrors the isProtected check in admin/users/page.tsx, which only hides the
+  // button — this is a public server action, so the real guard has to live here.
+  // The guard belongs on banning only: an admin account that somehow ends up
+  // banned must still be recoverable from this screen.
+  if (banned && id === admin.id) return;
+  const target = await prisma.user.findUnique({ where: { id }, include: { role: true } });
+  if (!target) return;
+  if (banned && target.role?.name === 'admin') return;
+
   await prisma.user.update({
     where: { id },
     data: { isBanned: banned, bannedReason: banned ? 'Banned by admin' : null },
+  });
+  await writeAudit({
+    actorId: admin.id,
+    action: banned ? AUDIT.USER_BAN : AUDIT.USER_UNBAN,
+    entity: 'user',
+    entityId: id,
+    ipAddress: await requestIp(),
   });
   revalidatePath('/admin/users');
 }
@@ -316,7 +348,9 @@ export async function createUser(
   formData: FormData,
 ): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const email = String(formData.get('email') ?? '').trim().toLowerCase();
+  const email = String(formData.get('email') ?? '')
+    .trim()
+    .toLowerCase();
   const name = String(formData.get('name') ?? '').trim() || null;
   const password = String(formData.get('password') ?? '');
   const roleName = String(formData.get('roleName') ?? '');
@@ -339,16 +373,39 @@ export async function resetUserPassword(formData: FormData): Promise<void> {
   const password = String(formData.get('password') ?? '');
   if (password.length < 8) return;
   await prisma.user.update({ where: { id }, data: { passwordHash: await hashPassword(password) } });
-  await writeAudit({ actorId: admin.id, action: 'user.reset_password', entity: 'user', entityId: id });
+  await writeAudit({
+    actorId: admin.id,
+    action: 'user.reset_password',
+    entity: 'user',
+    entityId: id,
+  });
   revalidatePath('/admin/users');
 }
 
 export async function setUserQuota(formData: FormData): Promise<void> {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const id = String(formData.get('id') ?? '');
   const raw = String(formData.get('quota') ?? '').trim();
-  const quota = raw === '' ? null : Math.max(0, Math.min(1_000_000, Number(raw) || 0));
+  // `Number(raw) || 0` turned "1,000" or a typo into 0 — and 0 is a hard block
+  // in send.ts, so a slip silently stopped a customer sending at all. Reject
+  // what is not a number instead of guessing zero.
+  const parsedQuota = raw === '' ? null : Number(raw);
+  if (parsedQuota !== null && !Number.isFinite(parsedQuota)) return;
+  const quota =
+    parsedQuota === null ? null : Math.max(0, Math.min(1_000_000, Math.trunc(parsedQuota)));
+  const before = await prisma.user.findUnique({
+    where: { id },
+    select: { sendQuotaOverride: true },
+  });
   await prisma.user.update({ where: { id }, data: { sendQuotaOverride: quota } });
+  await writeAudit({
+    actorId: admin.id,
+    action: AUDIT.USER_QUOTA_CHANGE,
+    entity: 'user',
+    entityId: id,
+    ipAddress: await requestIp(),
+    metadata: { from: before?.sendQuotaOverride ?? null, to: quota },
+  });
   revalidatePath('/admin/users');
 }
 
@@ -357,8 +414,19 @@ export async function setUserRole(formData: FormData): Promise<void> {
   const id = String(formData.get('id') ?? '');
   if (id === admin.id) return; // don't let an admin change their own role
   const roleName = String(formData.get('roleName') ?? '');
-  const role = await prisma.role.findUnique({ where: { name: roleName } });
+  const [target, role] = await Promise.all([
+    prisma.user.findUnique({ where: { id }, include: { role: true } }),
+    roleName ? prisma.role.findUnique({ where: { name: roleName } }) : Promise.resolve(null),
+  ]);
   await prisma.user.update({ where: { id }, data: { roleId: role?.id ?? null } });
+  await writeAudit({
+    actorId: admin.id,
+    action: AUDIT.USER_ROLE_CHANGE,
+    entity: 'user',
+    entityId: id,
+    ipAddress: await requestIp(),
+    metadata: { from: target?.role?.name ?? null, to: role?.name ?? null },
+  });
   revalidatePath('/admin/users');
 }
 

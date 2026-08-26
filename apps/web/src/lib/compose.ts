@@ -44,7 +44,9 @@ function pickRotated(
 ): string | undefined {
   const list = pool ?? [];
   if ((mode === 'sequential' || mode === 'random') && list.length > 0) {
-    return mode === 'sequential' ? list[i % list.length] : list[Math.floor(Math.random() * list.length)];
+    return mode === 'sequential'
+      ? list[i % list.length]
+      : list[Math.floor(Math.random() * list.length)];
   }
   return single && single.trim() ? single : undefined;
 }
@@ -146,18 +148,26 @@ export async function scheduleComposed(
 // Process one due scheduled message: rebuild the sending user, deliver to all
 // recipients, and record the outcome. Safe to call from a cron worker.
 export async function processScheduledMessage(id: string): Promise<void> {
-  const row = await prisma.scheduledMessage.findUnique({ where: { id } });
-  if (!row || row.status !== 'PENDING') return;
+  // Claim the row in one conditional write. Reading the status and then
+  // updating it left a gap the admin Cancel button could land in: the cancel
+  // saw PENDING and reported success while this call was already committed to
+  // sending, and the final update below then wrote SENT over CANCELED.
+  const claimed = await prisma.scheduledMessage.updateMany({
+    where: { id, status: 'PENDING' },
+    data: { status: 'PROCESSING' },
+  });
+  if (claimed.count === 0) return;
 
-  await prisma.scheduledMessage.update({ where: { id }, data: { status: 'PROCESSING' } });
+  const row = await prisma.scheduledMessage.findUnique({ where: { id } });
+  if (!row) return;
 
   const dbUser = await prisma.user.findUnique({
     where: { id: row.userId },
     include: { role: true },
   });
   if (!dbUser || dbUser.isBanned || !dbUser.isActive) {
-    await prisma.scheduledMessage.update({
-      where: { id },
+    await prisma.scheduledMessage.updateMany({
+      where: { id, status: 'PROCESSING' },
       data: { status: 'FAILED', lastError: 'sender_unavailable', processedAt: new Date() },
     });
     return;
@@ -191,8 +201,10 @@ export async function processScheduledMessage(id: string): Promise<void> {
     fromNameMode: (row.fromNameMode as ComposeInput['fromNameMode']) ?? undefined,
   });
 
-  await prisma.scheduledMessage.update({
-    where: { id },
+  // Scoped to PROCESSING so a terminal state written elsewhere is never
+  // overwritten by this run.
+  await prisma.scheduledMessage.updateMany({
+    where: { id, status: 'PROCESSING' },
     data: {
       status: res.failed > 0 && res.sent === 0 ? 'FAILED' : 'SENT',
       sentCount: res.sent,

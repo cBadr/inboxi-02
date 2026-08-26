@@ -140,9 +140,12 @@ export default async function AdminOutboxPage({
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium text-gray-900">
+                      <Link
+                        href={`/admin/outbox/${m.id}`}
+                        className="truncate text-sm font-medium text-gray-900 hover:text-brand hover:underline"
+                      >
                         {m.subject || '(no subject)'}
-                      </span>
+                      </Link>
                       <span className="shrink-0 text-xs text-gray-400">
                         {new Date(m.createdAt).toLocaleString()}
                       </span>
