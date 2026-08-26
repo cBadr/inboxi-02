@@ -78,9 +78,12 @@ set +a
 # This box has 2 vCPUs, 3.9 GB and no swap. Turbo running the web and worker
 # builds at once, with next spawning its own workers on top, was enough for the
 # kernel to OOM-kill the build — which wipes .next and leaves the running app
-# with no artifacts to restart from. One task at a time, and a heap ceiling low
-# enough that Node collects rather than grows into the kill zone.
-NODE_OPTIONS="--max-old-space-size=1536 ${NODE_OPTIONS:-}" pnpm build --concurrency=1
+# with no artifacts to restart from. One task at a time, and a heap ceiling that
+# keeps V8 inside the box. 1536 was tried first and was too small: the build
+# died on its own limit instead, which is the same outage by another name. This
+# build genuinely needs ~2 GB, so a release requires the outbound MTA's memory
+# to be free — stop haraka-outbound for the build window when its queue is deep.
+NODE_OPTIONS="--max-old-space-size=2560 ${NODE_OPTIONS:-}" pnpm build --concurrency=1
 
 echo "▶ Reloading Node services (PM2)…"
 if pm2 describe inboxi-web > /dev/null 2>&1; then
