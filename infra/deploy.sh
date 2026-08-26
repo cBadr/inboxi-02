@@ -79,11 +79,12 @@ set +a
 # builds at once, with next spawning its own workers on top, was enough for the
 # kernel to OOM-kill the build — which wipes .next and leaves the running app
 # with no artifacts to restart from. One task at a time, and a heap ceiling that
-# keeps V8 inside the box. 1536 was tried first and was too small: the build
-# died on its own limit instead, which is the same outage by another name. This
-# build genuinely needs ~2 GB, so a release requires the outbound MTA's memory
-# to be free — stop haraka-outbound for the build window when its queue is deep.
-NODE_OPTIONS="--max-old-space-size=2048 ${NODE_OPTIONS:-}" pnpm build --concurrency=1
+# keeps V8 inside the box *plus its swap*. The kernel's own kill records put a
+# single build worker at 2.4 GB resident, so 1536 and 2048 both just moved the
+# failure from the OOM killer to V8's own limit. With a 4 GB swapfile in place
+# the ceiling can be generous; what must stay capped is the worker count, since
+# one worker per CPU overran the box no matter what the ceiling was.
+NODE_OPTIONS="--max-old-space-size=4096 ${NODE_OPTIONS:-}" pnpm build --concurrency=1
 
 echo "▶ Reloading Node services (PM2)…"
 if pm2 describe inboxi-web > /dev/null 2>&1; then
