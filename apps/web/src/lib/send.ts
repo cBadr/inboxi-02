@@ -4,7 +4,12 @@ import {
   screenOutbound,
   type TransportConfig,
 } from '@inboxi/integrations/delivery';
-import type { SendMessageInput } from '@inboxi/shared';
+import {
+  parseQueueId,
+  sentAtForStatus,
+  statusForHandoff,
+  type SendMessageInput,
+} from '@inboxi/shared';
 import type { CurrentUser } from './session';
 import { decryptSecret } from './crypto';
 import { getAvailableDomains } from './domains';
@@ -200,6 +205,12 @@ export async function sendMail(user: CurrentUser, input: SendMessageInput): Prom
         ? TransportType.SMTP_RELAY
         : null;
 
+  // What the hand-off proves depends on who accepted it — see
+  // @inboxi/shared/delivery-status. A SELF_HOST accept is our own spool
+  // answering, not a delivery.
+  const recorded = statusForHandoff(usedTransport?.kind ?? null, result.ok);
+  const queueId = parseQueueId(result.response);
+
   const outbound = await prisma.outboundMessage.create({
     data: {
       userId: user.id,
@@ -209,16 +220,21 @@ export async function sendMail(user: CurrentUser, input: SendMessageInput): Prom
       subject: input.subject ?? null,
       bodyText: input.text ?? null,
       bodyHtml: input.html ?? null,
-      status: result.ok ? OutboundStatus.SENT : OutboundStatus.FAILED,
+      status: OutboundStatus[recorded],
       transportType,
-      providerMessageId: result.messageId ?? null,
+      // The MTA's own queue id, when it gave one — the only handle that ties a
+      // QUEUED row to a file still sitting in the spool.
+      providerMessageId: result.messageId ?? queueId,
       dkimSigned: Boolean(dkim),
       spamScore: verdict.score,
       lastError: result.ok ? null : result.error ?? null,
-      sentAt: result.ok ? new Date() : null,
+      sentAt: sentAtForStatus(recorded),
     },
   });
 
+  // Quota counts the attempt, not the delivery: a message sitting in the spool
+  // has already consumed the resource, and not counting it would let a queue
+  // be flooded for free.
   if (result.ok) {
     await prisma.usageCounter.upsert({
       where: { userId_metric_windowKey: { userId: user.id, metric: 'send.daily', windowKey: todayKey() } },

@@ -3,6 +3,8 @@ import { prisma } from '@inboxi/db';
 import { requireAdmin } from '@/lib/session';
 import { dailyInbound, dailyOutbound, dailyUsers, dailyEvents, seriesTotal } from '@/lib/timeseries';
 import { TrendCard, BarChart } from '@/components/Charts';
+import { getOutboundStats } from '@/lib/sending-stats';
+import { readOutboundSpool } from '@/lib/mail-spool';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +16,6 @@ export default async function AdminOverview() {
     mailboxes,
     messages,
     anon,
-    sent,
     blocked,
     activeSubs,
     attentionDomains,
@@ -23,13 +24,14 @@ export default async function AdminOverview() {
     users30,
     events30,
     recentAudit,
+    outboundStats,
+    spool,
   ] = await Promise.all([
     prisma.user.count(),
     prisma.domain.count(),
     prisma.mailbox.count(),
     prisma.message.count(),
     prisma.anonymousSession.count(),
-    prisma.outboundMessage.count({ where: { status: 'SENT' } }),
     prisma.outboundMessage.count({ where: { status: 'BLOCKED' } }),
     prisma.subscription.count({ where: { status: 'ACTIVE' } }),
     prisma.domain.findMany({
@@ -46,6 +48,8 @@ export default async function AdminOverview() {
       take: 10,
       include: { actor: { select: { email: true } } },
     }),
+    getOutboundStats(),
+    readOutboundSpool(), // one disk read for the whole page render
   ]);
 
   const stats = [
@@ -55,7 +59,10 @@ export default async function AdminOverview() {
     { label: 'Mailboxes', value: mailboxes },
     { label: 'Messages', value: messages },
     { label: 'Anon sessions', value: anon },
-    { label: 'Sent', value: sent },
+    // "Sent" pre-dates the SENT-on-accept fix: historical rows here were never confirmed
+    // delivered. Queued is what's still genuinely in flight right now.
+    { label: 'Sent (status)', value: outboundStats.byStatus.SENT ?? 0 },
+    { label: 'Queued', value: outboundStats.queued },
     { label: 'Blocked (abuse)', value: blocked },
   ];
 
@@ -84,9 +91,26 @@ export default async function AdminOverview() {
         {stats.map((s) => (
           <div key={s.label} className="rounded-lg border bg-white p-5 shadow-sm">
             <div className="text-xs uppercase tracking-wide text-gray-400">{s.label}</div>
-            <div className="mt-1 text-2xl font-bold">{s.value}</div>
+            <div
+              className={`mt-1 text-2xl font-bold ${s.label === 'Queued' ? 'text-amber-600' : ''}`}
+            >
+              {s.value}
+            </div>
           </div>
         ))}
+        {spool.available && (
+          <Link
+            href="/admin/delivery"
+            className={`rounded-lg border p-5 shadow-sm ${
+              spool.depth > 1000 || (spool.oldestMinutes ?? 0) > 60
+                ? 'border-red-300 bg-red-50'
+                : 'bg-white'
+            }`}
+          >
+            <div className="text-xs uppercase tracking-wide text-gray-400">MTA queue depth</div>
+            <div className="mt-1 text-2xl font-bold">{spool.depth.toLocaleString()}</div>
+          </Link>
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

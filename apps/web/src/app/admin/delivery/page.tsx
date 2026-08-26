@@ -3,6 +3,7 @@ import { prisma } from '@inboxi/db';
 import { requireAdmin } from '@/lib/session';
 import { ModuleActionForm } from '@/components/ModuleActionForm';
 import { getOutboundStats, getTransportStats } from '@/lib/sending-stats';
+import { readOutboundSpool } from '@/lib/mail-spool';
 import {
   createTransport,
   toggleTransport,
@@ -16,7 +17,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function AdminDeliveryPage() {
   await requireAdmin();
-  const [transports, domains, stats, transportStats] = await Promise.all([
+  const [transports, domains, stats, transportStats, spool] = await Promise.all([
     prisma.deliveryTransport.findMany({ orderBy: [{ isDefault: 'desc' }, { name: 'asc' }] }),
     prisma.domain.findMany({
       orderBy: { name: 'asc' },
@@ -24,9 +25,12 @@ export default async function AdminDeliveryPage() {
     }),
     getOutboundStats(),
     getTransportStats(),
+    readOutboundSpool(), // one disk read for the whole page — never call this in a loop
   ]);
 
   const failPct = Math.round(stats.failureRate * 100);
+  const deliveredPct = Math.round(stats.deliveredRate * 100);
+  const queueWarning = spool.available && (spool.depth > 1000 || (spool.oldestMinutes ?? 0) > 60);
 
   return (
     <div className="space-y-8">
@@ -37,6 +41,55 @@ export default async function AdminDeliveryPage() {
           SMTP relay. Pick a global default and override per domain.
         </p>
       </div>
+
+      {/* Outbound queue — the number that actually caught the SENT-lie incident */}
+      <section>
+        <h2 className="mb-2 text-sm font-semibold">Outbound queue</h2>
+        <div
+          className={`rounded-xl border p-5 ${
+            !spool.available
+              ? 'bg-gray-50'
+              : queueWarning
+                ? 'border-red-300 bg-red-50'
+                : 'bg-white'
+          }`}
+        >
+          {!spool.available ? (
+            <p className="text-sm text-gray-500">
+              Queue depth not available on this machine — the outbound MTA is not colocated
+              (expected in local dev).
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <div>
+                <div className="text-xs uppercase tracking-wide text-gray-400">Depth</div>
+                <div
+                  className={`mt-1 text-2xl font-bold ${queueWarning ? 'text-red-600' : 'text-gray-900'}`}
+                >
+                  {spool.depth.toLocaleString()}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-wide text-gray-400">Oldest message</div>
+                <div
+                  className={`mt-1 text-2xl font-bold ${queueWarning ? 'text-red-600' : 'text-gray-900'}`}
+                >
+                  {spool.oldestMinutes === null ? '—' : `${spool.oldestMinutes}m`}
+                </div>
+              </div>
+              {queueWarning && (
+                <div className="col-span-2 flex items-center text-sm font-medium text-red-700 sm:col-span-1">
+                  ⚠ Backlog building up — check the MTA and transports below.
+                </div>
+              )}
+            </div>
+          )}
+          <p className="mt-3 text-xs text-gray-400">
+            Rows written SENT before this fix predate it and will not be corrected retroactively —
+            this queue depth, not historical SENT counts, is the live truth.
+          </p>
+        </div>
+      </section>
 
       {/* Delivery health */}
       <section>
@@ -52,18 +105,28 @@ export default async function AdminDeliveryPage() {
             <div className="mt-1 text-2xl font-bold text-green-600">{stats.byStatus.SENT ?? 0}</div>
           </div>
           <div className="rounded-xl border bg-white px-4 py-3">
+            <div className="text-xs uppercase tracking-wide text-gray-400">Queued (total)</div>
+            <div className="mt-1 text-2xl font-bold text-amber-600">{stats.queued}</div>
+          </div>
+          <div className="rounded-xl border bg-white px-4 py-3">
             <div className="text-xs uppercase tracking-wide text-gray-400">Failed</div>
             <div className="mt-1 text-2xl font-bold text-red-600">{stats.byStatus.FAILED ?? 0}</div>
           </div>
           <div className="rounded-xl border bg-white px-4 py-3">
-            <div className="text-xs uppercase tracking-wide text-gray-400">Sent 24h</div>
-            <div className="mt-1 text-2xl font-bold text-gray-900">{stats.last24hTotal}</div>
+            <div className="text-xs uppercase tracking-wide text-gray-400">24h delivered</div>
+            <div className={`mt-1 text-2xl font-bold ${deliveredPct >= 95 ? 'text-green-600' : deliveredPct >= 80 ? 'text-amber-600' : 'text-red-600'}`}>
+              {deliveredPct}%
+            </div>
           </div>
           <div className="rounded-xl border bg-white px-4 py-3">
             <div className="text-xs uppercase tracking-wide text-gray-400">24h failure</div>
             <div className={`mt-1 text-2xl font-bold ${failPct >= 20 ? 'text-red-600' : failPct >= 5 ? 'text-amber-600' : 'text-green-600'}`}>
               {failPct}%
             </div>
+          </div>
+          <div className="rounded-xl border bg-white px-4 py-3">
+            <div className="text-xs uppercase tracking-wide text-gray-400">24h queued</div>
+            <div className="mt-1 text-2xl font-bold text-amber-600">{stats.last24hQueued}</div>
           </div>
         </div>
         {transportStats.length > 0 && (
@@ -73,6 +136,7 @@ export default async function AdminDeliveryPage() {
                 <tr>
                   <th className="p-3">Transport</th>
                   <th className="p-3">Sent</th>
+                  <th className="p-3">Queued</th>
                   <th className="p-3">Failed</th>
                   <th className="p-3">Success rate</th>
                 </tr>
@@ -84,6 +148,7 @@ export default async function AdminDeliveryPage() {
                     <tr key={t.transportType}>
                       <td className="p-3 font-medium">{t.transportType}</td>
                       <td className="p-3">{t.sent}</td>
+                      <td className="p-3 text-amber-600">{t.queued}</td>
                       <td className="p-3">{t.failed}</td>
                       <td className="p-3">
                         <span className={pct >= 95 ? 'text-green-600' : pct >= 80 ? 'text-amber-600' : 'text-red-600'}>

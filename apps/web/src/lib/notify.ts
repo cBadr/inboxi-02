@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto';
 import { prisma, OutboundStatus, TransportType } from '@inboxi/db';
 import { deliverWithFailover } from '@inboxi/integrations/delivery';
 import { sendTelegramMessage } from '@inboxi/integrations/telegram';
-import { renderTemplate } from '@inboxi/shared';
+import { renderTemplate, sentAtForStatus, statusForHandoff } from '@inboxi/shared';
 import { resolveTransports } from './send';
 
 interface NewMessage {
@@ -106,6 +106,9 @@ async function forwardMessage(message: NewMessage, mailbox: MailboxRef): Promise
   });
 
   const used = chain.find((c) => c.name === result.transport);
+  // Same rule as lib/send.ts: a forward handed to our own spool is queued, not
+  // sent. Recording it otherwise made forwarding look flawless too.
+  const recorded = statusForHandoff(used?.kind ?? null, result.ok);
   await prisma.outboundMessage.create({
     data: {
       userId: mailbox.userId,
@@ -113,14 +116,14 @@ async function forwardMessage(message: NewMessage, mailbox: MailboxRef): Promise
       fromAddress: mailbox.address,
       toAddress: mailbox.forwardTo,
       subject: message.subject ? `Fwd: ${message.subject}` : 'Fwd:',
-      status: result.ok ? OutboundStatus.SENT : OutboundStatus.FAILED,
+      status: OutboundStatus[recorded],
       transportType:
         used?.kind === 'SELF_HOST'
           ? TransportType.SELF_HOST
           : used?.kind === 'SMTP_RELAY'
             ? TransportType.SMTP_RELAY
             : null,
-      sentAt: result.ok ? new Date() : null,
+      sentAt: sentAtForStatus(recorded),
       lastError: result.ok ? null : result.error ?? null,
     },
   });
