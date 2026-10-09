@@ -118,6 +118,25 @@ dig MX inboxi.online +short                    # → mail.inboxi.online
 - Visit `https://inboxi.online` → instant temp address + live inbox.
 - Outbound: send from the app → check inbox arrival + **mail-tester.com** (target ≥ 9/10), SPF/DKIM/DMARC pass.
 
+## 8. Telegram alerts + inbound mail mirror (optional)
+
+Two things must be in place; the bot token is a secret (`.env`), the rest is data (DB):
+
+1. **`TELEGRAM_BOT_TOKEN`** in `/opt/inboxi/.env` (token from @BotFather), then re-read the env:
+   ```bash
+   cd /opt/inboxi && pm2 startOrRestart infra/ecosystem.config.cjs --update-env && pm2 save
+   ```
+   (`pm2 restart --update-env` alone keeps the old, empty value — the ecosystem file is what reads `.env`.)
+2. In **Admin → Settings → Alerts** (stored in the `Setting` table, so a fresh database starts empty):
+   - **Your Telegram chat ID** — get it from @userinfobot, and press Start on your bot once.
+   - **Mirror inbound mail to Telegram** — comma-separated domains, `*` for all, empty = off.
+     Every message stored for a watched domain (mailbox, temp inbox or catch-all) is sent to the
+     chat above with its body. Use **Send test alert** to confirm the channel.
+
+Migrating to a new server: set the token in `.env`, then either re-enter the two settings in the
+admin UI or restore them from a database dump (`alerts.telegramChatId`, `alerts.watchDomains`
+rows of the `Setting` table). Never commit the token or your chat ID to this repo.
+
 ---
 
 ## Deploy key (one-time, enables push-button releases)

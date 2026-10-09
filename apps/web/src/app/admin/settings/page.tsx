@@ -4,13 +4,24 @@ import { alertingStatus } from '@/lib/alerts';
 import { TempMailSettingsForm } from '@/components/TempMailSettingsForm';
 import { RetentionSettingsForm } from '@/components/RetentionSettingsForm';
 import { ModuleActionForm } from '@/components/ModuleActionForm';
-import { saveGeneralSettings, saveAlertSettings, sendTestAlert } from '../actions';
+import { saveGeneralSettings, saveAlertSettings, saveInboundWatch, sendTestAlert } from '../actions';
 
 export const dynamic = 'force-dynamic';
 
 export default async function AdminSettingsPage() {
   await requireAdmin();
-  const [pattern, destruction, gate, siteName, maxSize, alertChatId, alerts, retentionDays, orphanRetentionDays] =
+  const [
+    pattern,
+    destruction,
+    gate,
+    siteName,
+    maxSize,
+    alertChatId,
+    alerts,
+    retentionDays,
+    orphanRetentionDays,
+    watchDomains,
+  ] =
     await Promise.all([
       getSetting('tempmail.addressPattern'),
       getSetting('tempmail.destructionMinutes'),
@@ -21,6 +32,7 @@ export default async function AdminSettingsPage() {
       alertingStatus(),
       getSetting('mail.retentionDays'),
       getSetting('mail.orphanRetentionDays'),
+      getSetting('alerts.watchDomains'),
     ]);
 
   return (
@@ -95,6 +107,24 @@ export default async function AdminSettingsPage() {
             </span>
           </label>
         </ModuleActionForm>
+
+        <div className="mt-3">
+          <ModuleActionForm action={saveInboundWatch} submitLabel="Save watched domains">
+            <label className="block text-sm">
+              <span className="text-gray-600">Mirror inbound mail to Telegram</span>
+              <input
+                name="watchDomains"
+                placeholder="inboxi.online"
+                defaultValue={watchDomains}
+                className="mt-1 w-full rounded border px-3 py-2 font-mono"
+              />
+              <span className="mt-1 block text-xs text-gray-500">
+                Every message received on these domains is sent to your chat above, with its body.
+                Comma-separated; <code>*</code> means all domains; leave empty to turn it off.
+              </span>
+            </label>
+          </ModuleActionForm>
+        </div>
 
         <div className="mt-3">
           <ModuleActionForm

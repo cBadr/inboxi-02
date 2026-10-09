@@ -2,6 +2,7 @@ import { prisma, AnonGateStatus, MessageDirection } from '@inboxi/db';
 import type { InboundMail } from '@inboxi/shared';
 import { getSetting } from './settings';
 import { notifyNewMessage } from './notify';
+import { notifyAdminOfInbound } from './alerts';
 
 export interface IngestResult {
   stored: boolean;
@@ -20,7 +21,31 @@ function makeSnippet(mail: InboundMail): string {
 //   2. an active anonymous session holding that temp address (apply the gate)
 //   3. the domain's catch-all mailbox
 // Unknown / inactive domains are rejected.
+//
+// Every stored message — whichever of the three paths took it — is also
+// mirrored to the owner's Telegram when its domain is on the watch list
+// (Admin → Settings → Alerts). Fire-and-forget: it never delays or fails intake.
 export async function ingestInbound(mail: InboundMail): Promise<IngestResult> {
+  const result = await storeInbound(mail);
+  if (result.stored) {
+    const domain = mail.to.trim().toLowerCase().split('@')[1] ?? '';
+    void notifyAdminOfInbound(
+      {
+        from: mail.from,
+        to: mail.to.trim().toLowerCase(),
+        subject: mail.subject,
+        text: mail.text,
+        html: mail.html,
+        attachmentCount: mail.attachments.length,
+      },
+      domain,
+      result.target,
+    );
+  }
+  return result;
+}
+
+async function storeInbound(mail: InboundMail): Promise<IngestResult> {
   const toAddress = mail.to.trim().toLowerCase();
   const domainPart = toAddress.split('@')[1];
   if (!domainPart) {

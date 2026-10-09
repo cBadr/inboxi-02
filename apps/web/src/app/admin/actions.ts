@@ -454,6 +454,33 @@ export async function saveAlertSettings(
   return { ok: true };
 }
 
+// Which domains have their inbound mail mirrored, body and all, to the owner's Telegram.
+export async function saveInboundWatch(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  const tokens = String(formData.get('watchDomains') ?? '')
+    .toLowerCase()
+    .split(/[\s,;]+/)
+    .filter(Boolean);
+  const bad = tokens.find((t) => t !== '*' && !/^([a-z0-9-]+\.)+[a-z]{2,}$/.test(t));
+  if (bad) {
+    return { ok: false, error: `"${bad}" is not a valid domain. Use e.g. inboxi.online, or * for all.` };
+  }
+  const value = [...new Set(tokens)].join(',');
+  await setSetting(SETTING_KEYS.ALERTS_WATCH_DOMAINS, value, 'alerts');
+  await writeAudit({
+    actorId: admin.id,
+    action: 'settings.alerts_watch_updated',
+    entity: 'setting',
+    entityId: SETTING_KEYS.ALERTS_WATCH_DOMAINS,
+    metadata: { domains: value },
+  });
+  revalidatePath('/admin/settings');
+  return { ok: true };
+}
+
 // Prove the alert channel actually works, rather than discovering at 2am that it doesn't.
 export async function sendTestAlert(
   _prev: ActionResult | null,

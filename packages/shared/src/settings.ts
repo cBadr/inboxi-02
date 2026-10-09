@@ -12,6 +12,7 @@ export const SETTING_KEYS = {
   MAIL_ORPHAN_RETENTION_DAYS: 'mail.orphanRetentionDays',
   SITE_NAME: 'site.name',
   ALERTS_TELEGRAM_CHAT_ID: 'alerts.telegramChatId',
+  ALERTS_WATCH_DOMAINS: 'alerts.watchDomains',
 } as const;
 
 export interface SettingsDefaults {
@@ -34,6 +35,11 @@ export interface SettingsDefaults {
   [SETTING_KEYS.SITE_NAME]: string;
   /** Telegram chat the PLATFORM OWNER is paged on. Never a customer's chat. */
   [SETTING_KEYS.ALERTS_TELEGRAM_CHAT_ID]: string;
+  /**
+   * Domains whose inbound mail is mirrored, in full, to the owner's Telegram
+   * chat. Comma-separated; `*` watches every domain; empty disables it.
+   */
+  [SETTING_KEYS.ALERTS_WATCH_DOMAINS]: string;
 }
 
 export const SETTINGS_DEFAULTS: SettingsDefaults = {
@@ -45,4 +51,5 @@ export const SETTINGS_DEFAULTS: SettingsDefaults = {
   [SETTING_KEYS.MAIL_ORPHAN_RETENTION_DAYS]: 0,
   [SETTING_KEYS.SITE_NAME]: 'Inboxi',
   [SETTING_KEYS.ALERTS_TELEGRAM_CHAT_ID]: '',
+  [SETTING_KEYS.ALERTS_WATCH_DOMAINS]: '',
 };
