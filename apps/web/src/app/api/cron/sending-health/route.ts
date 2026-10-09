@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sendOperatorAlert, type AlertOutcome } from '@/lib/alerts';
+import { formatOperatorAlert } from '@inboxi/shared';
+import { adminLink, sendOperatorAlert, type AlertOutcome } from '@/lib/alerts';
 import { getOutboundStats } from '@/lib/sending-stats';
 import { readOutboundSpool } from '@/lib/mail-spool';
 
@@ -33,17 +34,32 @@ export async function GET(req: NextRequest) {
 
   let alertOutcome: AlertOutcome | null = null;
   if (alert) {
-    const lines = ['🚨 <b>Inboxi sending health</b>'];
+    const rows: { label: string; value: string; strong?: boolean }[] = [];
     if (failureAlert) {
-      lines.push(`24h failure rate: <b>${failPct}%</b> (${stats.last24hFailed}/${stats.last24hTotal})`);
+      rows.push({
+        label: '24h failure rate',
+        value: `${failPct}% (${stats.last24hFailed} of ${stats.last24hTotal} failed)`,
+        strong: true,
+      });
     }
     if (queueAlert) {
-      lines.push(
-        `Outbound MTA queue: <b>${spool.depth.toLocaleString()}</b> messages, oldest ${spool.oldestMinutes ?? '?'}m`,
-      );
+      rows.push({
+        label: 'Outbound queue',
+        value: `${spool.depth.toLocaleString()} messages, oldest ${spool.oldestMinutes ?? '?'} min`,
+        strong: true,
+      });
     }
-    lines.push('Check Admin → Delivery for details.');
-    alertOutcome = await sendOperatorAlert(lines.join('\n'));
+    const delivery = adminLink('/admin/delivery');
+    alertOutcome = await sendOperatorAlert(
+      formatOperatorAlert({
+        severity: 'critical',
+        title: 'Sending health',
+        subtitle: 'Outbound mail needs attention',
+        rows,
+        note: 'Check Admin → Delivery for the failing transports and the queue.',
+        links: delivery ? [{ text: '📊 Open Delivery', url: delivery }] : [],
+      }),
+    );
   }
 
   // Report the alert outcome, so a monitor that computes a problem but cannot

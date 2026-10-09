@@ -8,17 +8,19 @@ import {
   SETTING_KEYS,
   SETTINGS_DEFAULTS,
   checkDomainDeletion,
+  formatOperatorAlert,
+  parseWatchList,
 } from '@inboxi/shared';
 import { generateDkimKeyPair } from '@inboxi/integrations/cloudflare';
 import { requireAdmin } from '@/lib/session';
-import { setSetting } from '@/lib/settings';
+import { getSetting, setSetting } from '@/lib/settings';
 import { provisionDomainDns } from '@/lib/dns';
 import { verifyDomainDns, runReputationScan, rescanDeliverability } from '@/lib/domain-health';
 import { encryptSecret } from '@/lib/crypto';
 import { syncHostList, ensureCatchAllMailbox } from '@/lib/haraka';
 import { writeAudit, AUDIT } from '@/lib/audit';
 import { requestIp } from '@/lib/request-ip';
-import { sendOperatorAlert } from '@/lib/alerts';
+import { adminLink, sendOperatorAlert } from '@/lib/alerts';
 import { hashPassword } from '@/lib/auth';
 
 export interface ActionResult {
@@ -487,8 +489,23 @@ export async function sendTestAlert(
   _formData: FormData,
 ): Promise<ActionResult> {
   await requireAdmin();
+  const watched = parseWatchList(await getSetting(SETTING_KEYS.ALERTS_WATCH_DOMAINS));
+  const settingsPage = adminLink('/admin/settings');
   const outcome = await sendOperatorAlert(
-    '✅ <b>Inboxi test alert</b>\nOperator alerting is wired correctly.',
+    formatOperatorAlert({
+      severity: 'ok',
+      title: 'Test alert',
+      subtitle: 'Operator alerting is wired correctly',
+      rows: [
+        { label: 'Channel', value: 'Telegram bot → this chat' },
+        {
+          label: 'Inbound mail mirror',
+          value: watched.length > 0 ? `on — ${watched.join(', ')}` : 'off (no watched domains)',
+        },
+      ],
+      note: 'You will receive sending-health and deliverability alerts here.',
+      links: settingsPage ? [{ text: '⚙️ Open Settings', url: settingsPage }] : [],
+    }),
   );
   if (outcome.delivered) return { ok: true };
   const reasons: Record<string, string> = {

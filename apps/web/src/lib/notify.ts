@@ -2,7 +2,13 @@ import { createHmac } from 'node:crypto';
 import { prisma, OutboundStatus, TransportType } from '@inboxi/db';
 import { deliverWithFailover } from '@inboxi/integrations/delivery';
 import { sendTelegramMessage } from '@inboxi/integrations/telegram';
-import { renderTemplate, sentAtForStatus, statusForHandoff } from '@inboxi/shared';
+import {
+  DEFAULT_CUSTOMER_MAIL_TEMPLATE,
+  escapeHtml,
+  renderTemplate,
+  sentAtForStatus,
+  statusForHandoff,
+} from '@inboxi/shared';
 import { resolveTransports } from './send';
 
 interface NewMessage {
@@ -49,9 +55,14 @@ async function sendTelegramNotification(message: NewMessage, mailbox: MailboxRef
   const template = await prisma.notificationTemplate.findUnique({
     where: { key: 'mail.received' },
   });
-  const body = renderTemplate(template?.body ?? '📩 New mail for {{mailbox.address}}', {
-    mailbox: { address: mailbox.address },
-    message: { from: message.fromAddress, subject: message.subject ?? '(no subject)' },
+  // The message goes out with parse_mode HTML, so the values are escaped — a
+  // subject like "a < b" must not be read as a tag and break the whole message.
+  const body = renderTemplate(template?.body ?? DEFAULT_CUSTOMER_MAIL_TEMPLATE, {
+    mailbox: { address: escapeHtml(mailbox.address) },
+    message: {
+      from: escapeHtml(message.fromAddress),
+      subject: escapeHtml(message.subject ?? '(no subject)'),
+    },
   });
 
   await sendTelegramMessage({ botToken }, chatId, body);

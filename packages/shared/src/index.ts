@@ -7,5 +7,6 @@ export * from './retention';
 export * from './delivery-status';
 export * from './mail-html';
 export * from './otp';
+export * from './telegram-format';
 export * from './domain-policy';
 export * from './google';

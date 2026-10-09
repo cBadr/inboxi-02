@@ -28,18 +28,21 @@ function makeSnippet(mail: InboundMail): string {
 export async function ingestInbound(mail: InboundMail): Promise<IngestResult> {
   const result = await storeInbound(mail);
   if (result.stored) {
-    const domain = mail.to.trim().toLowerCase().split('@')[1] ?? '';
+    const to = mail.to.trim().toLowerCase();
     void notifyAdminOfInbound(
       {
         from: mail.from,
-        to: mail.to.trim().toLowerCase(),
+        to,
         subject: mail.subject,
         text: mail.text,
         html: mail.html,
-        attachmentCount: mail.attachments.length,
+        attachments: mail.attachments.map((a) => ({
+          filename: a.filename,
+          sizeBytes: a.sizeBytes,
+          isInline: a.isInline,
+        })),
       },
-      domain,
-      result.target,
+      { domain: to.split('@')[1] ?? '', target: result.target, messageId: result.messageId },
     );
   }
   return result;

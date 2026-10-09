@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@inboxi/db';
-import { sendOperatorAlert, type AlertOutcome } from '@/lib/alerts';
+import { formatOperatorAlert } from '@inboxi/shared';
+import { adminLink, sendOperatorAlert, type AlertOutcome } from '@/lib/alerts';
 import { verifyDomainDns, runReputationScan, getDeliverability } from '@/lib/domain-health';
 
 export const dynamic = 'force-dynamic';
@@ -48,10 +49,18 @@ export async function GET(req: NextRequest) {
   // Page the platform owner when something regressed.
   let alertOutcome: AlertOutcome | null = null;
   if (problems.length > 0) {
+    const domainsPage = adminLink('/admin/domains');
     alertOutcome = await sendOperatorAlert(
-      ['⚠️ <b>Inboxi deliverability check</b>']
-        .concat(problems.map((p) => `• ${p.domain} (${p.score}/100): ${p.issues.join(', ')}`))
-        .join('\n'),
+      formatOperatorAlert({
+        severity: 'warning',
+        title: 'Deliverability check',
+        subtitle: `${problems.length} of ${domains.length} domain${domains.length === 1 ? '' : 's'} need attention`,
+        rows: problems.map((p) => ({
+          label: p.domain,
+          value: `${p.score}/100 — ${p.issues.join(', ')}`,
+        })),
+        links: domainsPage ? [{ text: '🌐 Open Domains', url: domainsPage }] : [],
+      }),
     );
   }
 
